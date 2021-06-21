@@ -1,0 +1,57 @@
+data:
+  MPII:                           # refer http://human-pose.mpi-inf.mpg.de/#download
+    directories:
+      base: data/MPII
+      images: images/
+      train:
+        annotations: annotations/train.h5
+        images: images/
+      validation:
+        annotations: annotations/valid.h5
+        images: images/
+      test:
+        annotations: annotations/test.h5
+        images: images/
+    reference_pixel_size: 200   # Reference pixel size of Person's image. MPII dataset stores the scale with reference to `200 pixel` size.
+    parts:                      # parts (a.k.a. keypoints) on annotated on the body of a person.
+      max_count: 16             # max. key points on person's body in MPII dataset
+      names:       [rank, rkne, rhip, lhip, lkne, lank, pelv, thrx, neck, head, rwri, relb, rsho, lsho, lelb, lwri]   # order is important
+      ids:         [   0,    1,    2,     3,   4,    5,    6,    7,    8,    9,   10,   11,   12,   13,   14,   15]             # corresponding part ids
+      flipped_ids: [   5,    4,    3,     2,   1,    0,    6,    7,    8,    9,   15,   14,   13,   12,   11,   10]     # corresponding flipped part ids (right becomes left)
+    part_pairs:                                                                                           # connecting two keypoints on the human body to form a link/edge on the body
+      names: [ ankle,   knee,    hip, pelvis, thorax, neck, head,    wrist,    elbow, shoulder]   # name of keypoints-names forming a link
+      ids:   [[0, 5], [1, 4], [2, 3],    [6],    [7],   [8], [9], [10, 15], [11, 14], [12, 13]]                     # pair of keypoint-ids forming a link
+
+
+neural_network:
+  data_provider: data.MPII.dp
+  network: models.posenet.PoseNet
+  train:
+    batchsize: 16
+    input_resolution: 256
+    output_resolution: 64
+    train_iters: 1000
+    valid_iters: 10
+    learning_rate: 1e-3
+    max_num_people: 1
+    loss: [ [ 'combined_hm_loss', 1 ], ]
+    decay_iters: 100000
+    decay_lr: 2e-4
+    num_workers: 2
+    use_data_loader: True
+    data_augmentation:
+      rotation_angle: 30    # max. rotation angle in degrees
+      image_scale_factor:
+        min: 0.75
+        max: 1.75
+
+
+  inference:
+    nstack: 8
+    inp_dim: 256
+    oup_dim: 16
+    increase: 0
+    keys:
+      - imgs
+    num_eval: 2958       # number of val examples used. entire set is 2958
+    train_num_eval: 300   # number of train examples tested at test time
