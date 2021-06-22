@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 import torch
+from torch import nn
 
 
 REFERENCE_PIXEL_SIZE = 200
@@ -219,3 +220,141 @@ def crop(img, center, scale, resolution, rotation=0):
     new_img[new_y[0]:new_y[1], new_x[0]:new_x[1]] = img[old_y[0]:old_y[1], old_x[0]:old_x[1]]
 
     return cv2.resize(new_img, resolution)
+
+
+class HeatmapParser:
+    def __init__(self):
+        self.pool = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
+
+    def nms(self, det):
+        """
+        Non-maximal suppression of detected heatmap.
+
+        Args:
+            det (torch.tensor): Detections as heatmaps with shape (N, C, H, W).
+
+        Returns:
+            torch.tensor: Non-maximal supression of input with shape (N, C, H, W).
+
+        Notes:
+            N - Batch Size
+            C - Channel - this is 16 for MPII dataset
+            H - Height  - (output of hourglass network = 64)
+            W - Width   - (output of hourglass network = 64)
+        """
+        maxm = self.pool(det)
+        maxm = torch.eq(maxm, det).float()   # element wise equality
+        det = det * maxm
+        return det
+
+    def calc(self, det):
+        """
+        Predict the keypoint pixel locations and the pixel value from the detection heatmap ``det`` tensor.
+
+        Args:
+            det (torch.tensor): Detections as heatmaps with shape (N, C, H, W).
+
+        Returns:
+            dict[str, numpy.ndarray]: Dictionary containing following keys:
+                - "loc_k": with corresponding value as numpy.ndarray of indices with shape ``(N, C, 1, 2)``.
+                - "val_k": With corresponding value as numpy.ndarray of value at the ``loc_k`` index with shape ``(N, C, 1)``.
+
+        Notes:
+            N - Batch Size
+            C - Channel - this is 16 for MPII dataset
+            H - Height  - (output of hourglass network = 64)
+            W - Width   - (output of hourglass network = 64)
+
+        """
+
+        with torch.no_grad():
+            det = torch.autograd.Variable(torch.Tensor(det))
+
+        det = self.nms(det)
+
+        h = det.size()[2]
+        w = det.size()[3]
+
+        det = det.view(det.size()[0], det.size()[1], -1)
+
+        val_k, ind = det.topk(1, dim=2)
+
+        x = ind % w
+        y = (ind / h).long()
+
+        ind_k = torch.stack((x, y), dim=3)
+
+        ans = {'loc_k': ind_k, 'val_k': val_k}
+        return {key: ans[key].cpu().data.numpy() for key in ans}
+
+    def adjust(self, keypoint_list, detection):
+        """
+        Adjust detected keypoint locations as per the intensity of its neighboring pixel in the detection heatmap.
+
+        Args:
+            keypoint_list (list[numpy.ndarray]): Each element of the list is Keypoint pixel-locations and pixel-values in the detection heatmap with shape ``(1, C, 3)`` where ``C`` is number of keypoints. ``C=16`` for MPII dataset.
+            detection (torch.tensor): Detection heatmap of shape ``(N, C, H, W)``. ``(N, C, H, W)=(N, 16, 64, 64)`` based on network output specifications. Refer ``config.yaml``. Batch size ``N=1`` for testing/inference.
+
+        Returns:
+            list[numpy.ndarray]: List of length `1`. The element of the list is ``numpy.ndarray`` with shape ``(1, C, 3)``.
+
+        """
+        for batch_id, people in enumerate(keypoint_list):
+            for people_id, i in enumerate(people):
+                for joint_id, joint in enumerate(i):
+                    if joint[2] > 0:                # predicted keypoint intensity is greater than zero
+                        w, h = joint[0:2]           # joint coordinates along width (w or x) and height (h or y) of detection image
+                        hh, ww = int(h), int(w)
+
+                        tmp = detection[0][joint_id]   # channel corresponding to joint_id in the detection heatmap.
+
+                        if tmp[hh, min(ww + 1, tmp.shape[1] - 1)] > tmp[hh, max(ww - 1, 0)]:  # right neighbor intensity > left neighbor intensity
+                            w += 0.25
+                        else:
+                            w -= 0.25
+
+                        if tmp[min(hh + 1, tmp.shape[0] - 1), ww] > tmp[max(0, hh - 1), ww]:  # down neighbor intensity > up neighbor intensity
+                            h += 0.25
+                        else:
+                            h -= 0.25
+                        keypoint_list[0][0, joint_id, 0:2] = (w + 0.5, h + 0.5)
+        return keypoint_list
+
+    @staticmethod
+    def match_format(dic):
+        """
+        Convert the input dictionary of the matched keypoint to a list of numpy.ndarray.
+
+        Args:
+            dic (dict[str, numpy.ndarray]): Dictionary containing following keys:
+                    - "loc_k": with corresponding value as numpy.ndarray of indices with shape ``(1, C, 1, 2)``.
+                    - "val_k": With corresponding value as numpy.ndarray of value at the ``loc_k`` index with shape ``(1, C, 1)``.
+
+        Returns:
+            list[numpy.ndarray]: List of length `1`. The element of the list is ``numpy.ndarray`` with shape ``(1, C, 3)``. Each row of the numpy.ndarray is (x, y, pixel-intensity) of detected keypoint. For MPII dataset ``C=16``.
+
+        """
+        loc = dic['loc_k'][0, :, 0, :]  # shape    (C, 2)=(16, 2)
+        val = dic['val_k'][0, :, :]  # shape    (C, 1)=(16, 1)
+        ans = np.hstack((loc, val))  # shape    (C, 3)=(16, 3)
+        ans = np.expand_dims(ans, axis=0)  # shape (1, C, 3)=(1, 16, 3)
+        ret = [ans]
+        return ret
+
+    def parse(self, det, adjust=True):
+        """
+        Parse the input detection heatmap.
+
+        Args:
+            det (torch.tensor): Detection heatmap from network output with shape ``(1, C, H, W)=(1, 16, 64, 64)``
+            adjust (bool): If ``True``, adjust detected keypoint locations as per the intensity of neighboring pixel on heatmap. Default is ``True``.
+
+        Returns:
+
+        """
+        kp_dict = self.calc(det)
+        kp_list = HeatmapParser.match_format(kp_dict)
+        if adjust:
+            kp_list = self.adjust(kp_list, det)
+        return kp_list
+

@@ -14,18 +14,22 @@ data:
         images: images/
     reference_pixel_size: 200   # Reference pixel size of Person's image. MPII dataset stores the scale with reference to `200 pixel` size.
     parts:                      # parts (a.k.a. keypoints) on annotated on the body of a person.
-      max_count: 16             # max. key points on person's body in MPII dataset
+      max_count: 16             # max. keypoints on person's body in MPII dataset
       names:       [rank, rkne, rhip, lhip, lkne, lank, pelv, thrx, neck, head, rwri, relb, rsho, lsho, lelb, lwri]   # order is important
-      ids:         [   0,    1,    2,     3,   4,    5,    6,    7,    8,    9,   10,   11,   12,   13,   14,   15]             # corresponding part ids
-      flipped_ids: [   5,    4,    3,     2,   1,    0,    6,    7,    8,    9,   15,   14,   13,   12,   11,   10]     # corresponding flipped part ids (right becomes left)
-    part_pairs:                                                                                           # connecting two keypoints on the human body to form a link/edge on the body
+      ids:         [   0,    1,    2,     3,   4,    5,    6,    7,    8,    9,   10,   11,   12,   13,   14,   15]   # corresponding part ids
+      flipped_ids: [   5,    4,    3,     2,   1,    0,    6,    7,    8,    9,   15,   14,   13,   12,   11,   10]   # corresponding flipped part ids (right becomes left)
+    part_pairs:                                                                                   # connecting two keypoints on the human body to form a link/edge on the body
       names: [ ankle,   knee,    hip, pelvis, thorax, neck, head,    wrist,    elbow, shoulder]   # name of keypoints-names forming a link
-      ids:   [[0, 5], [1, 4], [2, 3],    [6],    [7],   [8], [9], [10, 15], [11, 14], [12, 13]]                     # pair of keypoint-ids forming a link
+      ids:   [[0, 5], [1, 4], [2, 3],    [6],    [7],   [8], [9], [10, 15], [11, 14], [12, 13]]   # pair of keypoint-ids forming a link
 
 
 neural_network:
-  data_provider: data.MPII.dp
-  network: models.posenet.PoseNet
+  PoseNet:
+    n_hourglass: 8
+    in_channels: 256
+    out_channels: 16
+    channel_increase: 0
+
   train:
     batchsize: 16
     input_resolution: 256
@@ -44,13 +48,11 @@ neural_network:
       image_scale_factor:
         min: 0.75
         max: 1.75
+      image_color_jitter_probability: 0.5
+      hue_random_max_delta: 0.2   # between [0, 0.5]
 
 
   inference:
-    nstack: 8
-    inp_dim: 256
-    oup_dim: 16
-    increase: 0
     keys:
       - imgs
     num_eval: 2958       # number of val examples used. entire set is 2958
