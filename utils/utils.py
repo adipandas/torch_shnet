@@ -15,10 +15,10 @@ References:
 
 def make_input(x, requires_grad=False, need_cuda=True):
     """
-    Make the input for network.
+    Make the input for network. Converts input to pytorch tensor.
 
     Args:
-        x (torch.tensor or numpy.ndarray):
+        x (torch.Tensor or numpy.ndarray):
         requires_grad (bool): If `True`, track the gradient of torch variable. Default is ``False``.
         need_cuda (bool): If ``True``, add the created torch tensor to the GPU device. Default is ``True``.
 
@@ -36,7 +36,7 @@ def make_output(x):
     Convert the data from torch tensors to numpy array format.
 
     Args:
-        x (torch.tensor or list[torch.tensor] or tuple[torch.tensor]): tensor (or list of tensors) from torch module
+        x (torch.Tensor or list[torch.Tensor] or tuple[torch.Tensor]): tensor (or list of tensors) from torch module
 
     Returns:
         numpy.ndarray or list[numpy.ndarray]: Numpy tensor (or list of numpy tensors).
@@ -231,10 +231,10 @@ class HeatmapParser:
         Non-maximal suppression of detected heatmap.
 
         Args:
-            det (torch.tensor): Detections as heatmaps with shape (N, C, H, W).
+            det (torch.Tensor): Detections as heatmaps with shape (N, C, H, W).
 
         Returns:
-            torch.tensor: Non-maximal supression of input with shape (N, C, H, W).
+            torch.Tensor: Non-maximal supression of input with shape (N, C, H, W).
 
         Notes:
             N - Batch Size
@@ -252,7 +252,7 @@ class HeatmapParser:
         Predict the keypoint pixel locations and the pixel value from the detection heatmap ``det`` tensor.
 
         Args:
-            det (torch.tensor): Detections as heatmaps with shape (N, C, H, W).
+            det (torch.Tensor): Detections as heatmaps with shape (N, C, H, W).
 
         Returns:
             dict[str, numpy.ndarray]: Dictionary containing following keys:
@@ -293,7 +293,7 @@ class HeatmapParser:
 
         Args:
             keypoint_list (list[numpy.ndarray]): Each element of the list is Keypoint pixel-locations and pixel-values in the detection heatmap with shape ``(1, C, 3)`` where ``C`` is number of keypoints. ``C=16`` for MPII dataset.
-            detection (torch.tensor): Detection heatmap of shape ``(N, C, H, W)``. ``(N, C, H, W)=(N, 16, 64, 64)`` based on network output specifications. Refer ``config.yaml``. Batch size ``N=1`` for testing/inference.
+            detection (torch.Tensor): Detection heatmap of shape ``(N, C, H, W)``. ``(N, C, H, W)=(N, 16, 64, 64)`` based on network output specifications. Refer ``config.yaml``. Batch size ``N=1`` for testing/inference.
 
         Returns:
             list[numpy.ndarray]: List of length `1`. The element of the list is ``numpy.ndarray`` with shape ``(1, C, 3)``.
@@ -346,11 +346,11 @@ class HeatmapParser:
         Parse the input detection heatmap.
 
         Args:
-            det (torch.tensor): Detection heatmap from network output with shape ``(1, C, H, W)=(1, 16, 64, 64)``
+            det (torch.Tensor): Detection heatmap from network output with shape ``(1, C, H, W)=(1, 16, 64, 64)``
             adjust (bool): If ``True``, adjust detected keypoint locations as per the intensity of neighboring pixel on heatmap. Default is ``True``.
 
         Returns:
-
+            list[numpy.ndarray]: List of length `1`. The element of the list is ``numpy.ndarray`` with shape ``(1, C, 3)``.
         """
         kp_dict = self.calc(det)
         kp_list = HeatmapParser.match_format(kp_dict)

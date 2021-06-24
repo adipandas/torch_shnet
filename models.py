@@ -49,10 +49,10 @@ class Conv2DCustom(nn.Module):
         Forward pass. For more information on input and output tensor dimensions check https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html.
 
         Args:
-            x (torch.tensor): Shape (N, C_in, H_in, W_in)
+            x (torch.Tensor): Shape (N, C_in, H_in, W_in)
 
         Return:
-            torch.tensor: Shape (N, C_out, H_out, W_out)
+            torch.Tensor: Shape (N, C_out, H_out, W_out)
         """
 
         assert x.size()[
@@ -108,10 +108,10 @@ class ResidualBlock2D(nn.Module):
     def forward(self, x):
         """
         Args:
-            x (torch.tensor): Shape (N, C_in, H, W)
+            x (torch.Tensor): Shape (N, C_in, H, W)
 
         Return:
-            torch.tensor: Shape (N, C_out, H, W)
+            torch.Tensor: Shape (N, C_out, H, W)
         """
         if self.skip_layer is not None:
             residual = self.skip_layer(x)
@@ -185,11 +185,11 @@ class HeatMapLoss(nn.Module):
     def forward(self, prediction, ground_truth):
         """
         Args:
-            prediction (torch.tensor): Shape (N, C, H, W)
-            ground_truth (torch.tensor): Shape (N, C, H, W)
+            prediction (torch.Tensor): Shape (N, C, H, W)
+            ground_truth (torch.Tensor): Shape (N, C, H, W)
 
         Return:
-            torch.tensor: Loss with shape (N,)
+            torch.Tensor: Loss with shape (N,)
 
         Notes:
             N: Batch-Size
@@ -264,10 +264,10 @@ class PoseNet(nn.Module):
     def forward(self, x):
         """
         Args:
-            x (torch.tensor): Shape (N, C, H, W).
+            x (torch.Tensor): Shape (N, C_in, H, W).
 
         Return:
-            torch.tensor: Shape (N, n_hourglass, C, (H+1)/4, (W+1)/4)
+            torch.Tensor: Shape (N, n_hourglass, C_out, (H+1)/4, (W+1)/4)
 
         Notes:
             N: Batch size
@@ -293,12 +293,17 @@ class PoseNet(nn.Module):
 
     def calc_loss(self, prediction, ground_truth):
         """
+        Evaluate loss given the prediction and groundtruth output values.
+
         Args:
-            prediction (torch.tensor): Shape (N, n_hourglass, C, (H+1)/4, (W+1)/4)
-            ground_truth (torch.tensor): Shape (N, C, (H+1)/4, (W+1)/4)
+            prediction (torch.Tensor): Shape ``(N, n_hourglass, C, (H+1)/4, (W+1)/4)``.
+            ground_truth (torch.Tensor): Shape ``(N, C, (H+1)/4, (W+1)/4)``.
 
         Return:
-            torch.tensor: Shape (N, n_hourglass)
+            torch.Tensor: Shape ``(N, n_hourglass)``.
+
+        Notes:
+            - ``(H, W)`` is the input image size used for getting the prediction of shape ``((H+1)/4, (W+1)/4)``.
 
         """
         loss_ = []
