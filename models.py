@@ -202,6 +202,49 @@ class HeatMapLoss(nn.Module):
         return loss
 
 
+class HeatMapLossBatch(nn.Module):
+    """
+        Heat map loss function for a batch of input.
+
+        Shape:
+            - input:
+                 - prediction: (N, C, H, W)
+                 - ground_truth: (N, C, H, W)
+            - output: (N,)
+        """
+
+    def __init__(self):
+        super(HeatMapLossBatch, self).__init__()
+        self.heatmap_loss = HeatMapLoss()
+
+    def forward(self, prediction, ground_truth):
+        """
+        Evaluate loss given the prediction and groundtruth output values of a batch.
+
+        Args:
+            prediction (torch.Tensor): Shape ``(N, n_hourglass, C, H, W)``.
+            ground_truth (torch.Tensor): Shape ``(N, C, H, W)``.
+
+        Return:
+            torch.Tensor: Shape ``(N, n_hourglass)``.
+
+        Notes:
+            - ``N``: Batch size
+            - ``C``: Channel size
+            - ``n_hourglass``: Number of stacked hourglass modules
+            - ``H``: Height
+            - ``W``: Width
+
+        """
+        loss_ = []
+        for i in range(self.n_hourglass):
+            loss = self.heatmap_loss(prediction=prediction[:, i], ground_truth=ground_truth)
+            loss_.append(loss)
+
+        loss_ = torch.stack(loss_, dim=1)
+        return loss_
+
+
 class PoseNet(nn.Module):
     """
     Stacked HourGlass network.
@@ -291,25 +334,25 @@ class PoseNet(nn.Module):
 
         return torch.stack(predictions_stack, dim=1)
 
-    def calc_loss(self, prediction, ground_truth):
-        """
-        Evaluate loss given the prediction and groundtruth output values.
-
-        Args:
-            prediction (torch.Tensor): Shape ``(N, n_hourglass, C, (H+1)/4, (W+1)/4)``.
-            ground_truth (torch.Tensor): Shape ``(N, C, (H+1)/4, (W+1)/4)``.
-
-        Return:
-            torch.Tensor: Shape ``(N, n_hourglass)``.
-
-        Notes:
-            - ``(H, W)`` is the input image size used for getting the prediction of shape ``((H+1)/4, (W+1)/4)``.
-
-        """
-        loss_ = []
-        for i in range(self.n_hourglass):
-            loss = self.heatmap_loss(prediction=prediction[:, i], ground_truth=ground_truth)
-            loss_.append(loss)
-
-        loss_ = torch.stack(loss_, dim=1)
-        return loss_
+    # def calc_loss(self, prediction, ground_truth):
+    #     """
+    #     Evaluate loss given the prediction and groundtruth output values.
+    #
+    #     Args:
+    #         prediction (torch.Tensor): Shape ``(N, n_hourglass, C, (H+1)/4, (W+1)/4)``.
+    #         ground_truth (torch.Tensor): Shape ``(N, C, (H+1)/4, (W+1)/4)``.
+    #
+    #     Return:
+    #         torch.Tensor: Shape ``(N, n_hourglass)``.
+    #
+    #     Notes:
+    #         - ``(H, W)`` is the input image size used for getting the prediction of shape ``((H+1)/4, (W+1)/4)``.
+    #
+    #     """
+    #     loss_ = []
+    #     for i in range(self.n_hourglass):
+    #         loss = self.heatmap_loss(prediction=prediction[:, i], ground_truth=ground_truth)
+    #         loss_.append(loss)
+    #
+    #     loss_ = torch.stack(loss_, dim=1)
+    #     return loss_

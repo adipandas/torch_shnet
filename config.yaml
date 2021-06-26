@@ -48,6 +48,12 @@ neural_network:
       saturation_min_delta: 0.5               # minimum possible change in saturation of image
       brightness_max_delta: 0.3               # max possible change in image brightness
       contrast_min_delta: 0.5                 # minimum possible change in contrast of image
+    DistributedDataParallel:
+      use: True                               # if ``True``, use DistributedDataParallel from pytorch.
+      backend: gloo                           # for more options refer https://pytorch.org/docs/stable/distributed.html#torch.distributed.init_process_group
+      MASTER_ADDR: localhost                  # ip address to use
+      MASTER_PORT: 12355                      # port number to use
+      world_size: 1                           # default 1. Change it depending on your requirements
 
   inference:
     keys: [imgs]

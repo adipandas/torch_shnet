@@ -5,7 +5,7 @@ from torch import nn
 from torch.nn import DataParallel
 from utils.utils import make_input, make_output
 from utils.read_config import ConfigYamlParserMPII
-from models import PoseNet
+from models import PoseNet, HeatMapLossBatch
 
 
 class Trainer(nn.Module):
@@ -14,11 +14,11 @@ class Trainer(nn.Module):
     inference_keys specify the inputs for inference
 
     Args:
-        model (torch.nn.Module):
-        calc_loss (callable):
+        model (torch.nn.Module): Model wrapped in ``torch.nn.DataParallel``
+        calc_loss (torch.nn.Module): Loss module to calculate the loss of predicted values.
     """
 
-    def __init__(self, model, calc_loss=None):
+    def __init__(self, model, calc_loss):
         super(Trainer, self).__init__()
         self.model = model
         self.calc_loss = calc_loss
@@ -70,9 +70,9 @@ def make_pose_net(config):
                        channel_increase=config.POSENET_INPUT_PARAMS['channel_increase'])
 
     # dump network on gpu
-    forward_net = DataParallel(pose_net.cuda())
+    pose_net = DataParallel(pose_net.cuda())
 
-    network_trainer = Trainer(forward_net, calc_loss)
+    trainer = Trainer(pose_net, calc_loss)
 
     # optimizer, experiment setup
     optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, network_trainer.parameters()), train_params['learning_rate'])

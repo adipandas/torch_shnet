@@ -13,6 +13,19 @@ References:
 """
 
 
+def _is_array_like(obj_):
+    """
+    Check if the input object is like an array or not.
+
+    Args:
+        obj_ (object): Input object.
+
+    Returns:
+        bool: `True` if the input object has ``__iter__`` and ``__len__`` attributes.
+    """
+    return hasattr(obj_, '__iter__') and hasattr(obj_, '__len__')
+
+
 def make_input(x, requires_grad=False, need_cuda=True):
     """
     Make the input for network. Converts input to pytorch tensor.

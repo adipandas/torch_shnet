@@ -13,55 +13,8 @@ import cv2
 from imageio import imread
 import torch
 import torch.utils.data
-import utils
+import utils.utils as utils
 from utils.read_config import ConfigYamlParserMPII
-
-# MAX_ROTATION_ANGLE = 30.   # Maximum rotation for data augmentation by rotation of image. (in degree)
-# SCALE_RANGE = dict(min=0.75, max=1.75)  # Image scaling factor range for data augmentation
-# REFERENCE_PIXEL_SIZE = 200
-# """
-# int: Reference pixel size of Person's image. MPII dataset stores the scale with reference to `200 pixel` size.
-#
-# References:
-#     * MPII website: http://human-pose.mpi-inf.mpg.de/#download
-# """
-#
-# CONFIG_FILE_PATH = osp.abspath("../config.yaml")
-# assert osp.exists(CONFIG_FILE_PATH), "Configuration file not found. Check if the config.yaml file exists in the directory."
-#
-# with open(CONFIG_FILE_PATH) as f:
-#     config = yaml.load(f, Loader=yaml.FullLoader)
-#
-# base_dir = osp.join(osp.dirname(CONFIG_FILE_PATH), config['data']['base'])
-# assert osp.exists(base_dir), f"base directory {base_dir} not found. Check {CONFIG_FILE_PATH} file."
-#
-# train_annotation_file = osp.join(base_dir, config['data']['train']['annotations'])
-# assert osp.exists(train_annotation_file), f"Training annotation file {train_annotation_file} not found. Check {CONFIG_FILE_PATH} file."
-#
-# validation_annotation_file = osp.join(base_dir, config['data']['validation']['annotations'])
-# assert osp.exists(validation_annotation_file), f"Validation annotation file {validation_annotation_file} not found. Check {CONFIG_FILE_PATH} file."
-#
-# image_dir = osp.join(base_dir, config['data']['images'])
-# assert osp.exists(image_dir), f"Image directory {image_dir} not found. Check {CONFIG_FILE_PATH} file."
-#
-# # Part reference
-# parts = {'mpii': ['rank', 'rkne', 'rhip', 'lhip', 'lkne', 'lank', 'pelv', 'thrx', 'neck', 'head', 'rwri', 'relb', 'rsho', 'lsho', 'lelb', 'lwri']}
-# flipped_parts = {'mpii': [5, 4, 3, 2, 1, 0, 6, 7, 8, 9, 15, 14, 13, 12, 11, 10]}
-# part_pairs = {'mpii': [[0, 5], [1, 4], [2, 3], [6], [7], [8], [9], [10, 15], [11, 14], [12, 13]]}
-# pair_names = {'mpii': ['ankle', 'knee', 'hip', 'pelvis', 'thorax', 'neck', 'head', 'wrist', 'elbow', 'shoulder']}
-
-
-def _is_array_like(obj_):
-    """
-    Check if the input object is like an array or not.
-
-    Args:
-        obj_ (object): Input object.
-
-    Returns:
-        bool: `True` if the input object has ``__iter__`` and ``__len__`` attributes.
-    """
-    return hasattr(obj_, '__iter__') and hasattr(obj_, '__len__')
 
 
 class MPIIAnnotationHandler:
@@ -95,25 +48,25 @@ class MPIIAnnotationHandler:
         train_visible = train_file['visible'][()]
         train_normalize = train_file['normalize'][()]
 
-        self.n_train_samples = len(train_center)
-        """
-        int: Number of training samples available in dataset.
-        """
-
-        train_imgname = [None] * self.n_train_samples
-        for i in range(self.n_train_samples):
-            train_imgname[i] = train_file['imgname'][i].decode('UTF-8')
-
         validation_center = validation_file['center'][()]
         validation_scale = validation_file['scale'][()]
         validation_part = validation_file['part'][()]
         validation_visible = validation_file['visible'][()]
         validation_normalize = validation_file['normalize'][()]
 
+        self.n_train_samples = len(train_center)
+        """
+        int: Number of training samples available in dataset.
+        """
+
         self.n_validation_samples = len(validation_center)
         """
         int: Number of validation samples available in dataset.
         """
+
+        train_imgname = [None] * self.n_train_samples
+        for i in range(self.n_train_samples):
+            train_imgname[i] = train_file['imgname'][i].decode('UTF-8')
 
         validation_imgname = [None] * self.n_validation_samples
         for i in range(self.n_validation_samples):
@@ -130,7 +83,7 @@ class MPIIAnnotationHandler:
 
     def get_annotation(self, idx):
         """
-        Returns h5 file for train or val set
+        Returns data from h5 file for train or val set corresponding to given index ``idx``.
 
         Args:
             idx (int): Index of the data.
@@ -141,13 +94,7 @@ class MPIIAnnotationHandler:
         Notes:
             - ``part`` is an array of human-pose keypoint coordinates in the image.
         """
-        return (self.imgname[idx],
-                self.part[idx],
-                self.visible[idx],
-                self.center[idx],
-                self.scale[idx],
-                self.normalize[idx]
-                )
+        return self.imgname[idx], self.part[idx], self.visible[idx], self.center[idx], self.scale[idx], self.normalize[idx]
 
     def get_imgpath(self, img_name):
         """
@@ -163,7 +110,6 @@ class MPIIAnnotationHandler:
 
     def get_length(self):
         """
-
         Returns:
             tuple[int, int]: tuple of elements ``(sample_count_in_training_set, sample_count_in_validation_set)``.
         """
@@ -172,7 +118,7 @@ class MPIIAnnotationHandler:
     def split_data(self):
         """
         Split the MPII dataset into training and validation set. Returns index for train and validation imgs.
-        Indices for validation images starts after that of train images so that load_image can tell them apart
+        Indices for validation images starts after that of train images so that load_image can tell them apart.
 
         Returns:
             tuple[numpy.ndarray, numpy.ndarray]: Tuple containing:
