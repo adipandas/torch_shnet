@@ -1,5 +1,5 @@
 data:
-  MPII:                                 # refer http://human-pose.mpi-inf.mpg.de/#download
+  MPII:                                         # refer http://human-pose.mpi-inf.mpg.de/#download
     paths:
       base: data/MPII                           # dir path; can be absolute path
       images: images                            # dir path; must be relative to base path
@@ -27,6 +27,7 @@ neural_network:
     channel_increase: 0
 
   train:
+    random_seed: 1234
     batch_size: 16
     input_resolution: 256
     output_resolution: 64
@@ -43,7 +44,8 @@ neural_network:
       image_scale_factor:
         min: 0.75
         max: 1.75
-      image_color_jitter_probability: 0.5
+      image_color_jitter_probability: 0.5     # probability to introduce random color jitter in image
+      image_horizontal_flip_probability: 0.5  # probability to flip image horizontally.
       hue_max_delta: 0.2                      # max possible change in hue of image between [0, 0.5]
       saturation_min_delta: 0.5               # minimum possible change in saturation of image
       brightness_max_delta: 0.3               # max possible change in image brightness
@@ -51,7 +53,7 @@ neural_network:
     DistributedDataParallel:
       use: True                               # if ``True``, use DistributedDataParallel from pytorch.
       backend: gloo                           # for more options refer https://pytorch.org/docs/stable/distributed.html#torch.distributed.init_process_group
-      MASTER_ADDR: localhost                  # ip address to use
+      MASTER_ADDR: 127.0.0.1                  # ip address to use
       MASTER_PORT: 12355                      # port number to use
       world_size: 1                           # default 1. Change it depending on your requirements
 

@@ -4,15 +4,6 @@ import torch
 from torch import nn
 
 
-REFERENCE_PIXEL_SIZE = 200
-"""
-int: Reference pixel size of Person's image. MPII dataset stores the scale with reference to `200 pixel` size.
-
-References:
-    * MPII website: http://human-pose.mpi-inf.mpg.de/#download
-"""
-
-
 def _is_array_like(obj_):
     """
     Check if the input object is like an array or not.
@@ -117,7 +108,7 @@ def kpt_affine(kpt, mat):
     return new_kpt
 
 
-def get_transform(center, scale, resolution, rotation=0):
+def get_transform(center, scale, resolution, rotation=0, reference_image_size=200):
     """
     Generate transformation matrix.
 
@@ -126,12 +117,13 @@ def get_transform(center, scale, resolution, rotation=0):
         scale (float): person scale w.r.t. 200 px height.
         resolution (tuple or list or numpy.ndarray): Desired resoultion as tuple ``(Height, Width)`` of length `2`.
         rotation (float): Angle of rotation in degrees. Default is `0`.
+        reference_image_size (int): Scale of the image used as refernce for scaling original data.
 
     Returns:
         numpy.ndarray: Transformation matrix of shape (3, 3).
     """
 
-    h = REFERENCE_PIXEL_SIZE * scale                        # current resolution
+    h = reference_image_size * scale                        # current resolution
     xc, yc = float(center[0]), float(center[1])             # center as per current resolution
 
     X, Y = float(resolution[1]), float(resolution[0])       # desired resolution
@@ -371,3 +363,32 @@ class HeatmapParser:
             kp_list = self.adjust(kp_list, det)
         return kp_list
 
+
+def create_gaussian_kernel(sigma=1.0, size=None):
+    """
+    Method to create a square 2D gaussian kernel.
+
+    Args:
+        sigma (float): Standard deviation of gaussian kernel.
+        size (int): Size of gaussian kernel. Default is ``None``. If ``None``, the default kernel_size is ``9``. Input value to be an odd number.
+
+    Returns:
+        tuple[numpy.ndarray, int, int]: Tuple of length ``3`` containing:
+            - numpy.ndarray: Gaussian Kernel of shape (size, size). Default shape is ``(9, 9)``.
+            - int: Gaussian kernel center (mean) along x-axis.
+            - int: Gaussian kernel center (mean) along y-axis.
+    """
+
+    if size is None:
+        size = 6 * sigma + 3
+        x_center = y_center = 3 * sigma + 1
+    else:
+        x_center = y_center = int((size-1)/2)
+
+    assert int(size) % 2 == 1, f"Size {size} must be an odd number."
+
+    x = np.arange(start=0, stop=size, step=1, dtype=float)
+    y = x[:, None]
+
+    gaussian = np.exp(- ((x - x_center) ** 2 + (y - y_center) ** 2) / (2 * sigma ** 2))
+    return gaussian, x_center, y_center

@@ -40,7 +40,7 @@ class ConfigYamlParserMPII:
         self._exists(self.TESTING_ANNOTATION_FILE)
 
     def _set_dataset_parameters(self):
-        self.REFERENCE_IMAGE_SIZE = self.config['data']['MPII']['reference_pixel_size']
+        self.REFERENCE_IMAGE_SIZE = self.config['data']['MPII']['reference_image_size']
         self.PARTS = self.config['data']['MPII']['parts']
         self.PART_PAIRS = self.config['data']['MPII']['part_pairs']
 
@@ -58,4 +58,9 @@ class ConfigYamlParserMPII:
             path (str): File or directory path.
         """
         assert osp.exists(path), f"'{path}' not found. Check '{self.config_file_path}'."
+
+
+if __name__ == "__main__":
+    c = ConfigYamlParserMPII(path="./../config.yaml")
+    print(c.config)
 

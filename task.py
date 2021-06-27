@@ -3,7 +3,7 @@ import numpy as np
 import torch
 from torch import nn
 from torch.nn import DataParallel
-from utils.utils import make_input, make_output
+from utils.helpers import make_input, make_output
 from utils.read_config import ConfigYamlParserMPII
 from models import PoseNet, HeatMapLossBatch
 

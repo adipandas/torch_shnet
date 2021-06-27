@@ -1,10 +1,10 @@
 """
-Website: http://human-pose.mpi-inf.mpg.de/#download
-GitHub: https://github.com/princeton-vl/pytorch_stacked_hourglass/
+* Website: http://human-pose.mpi-inf.mpg.de/#download
+*  GitHub: https://github.com/princeton-vl/pytorch_stacked_hourglass/
 """
 
-import sys
-import os
+# import sys
+# import os
 import os.path as osp
 import time
 import h5py
@@ -13,7 +13,7 @@ import cv2
 from imageio import imread
 import torch
 import torch.utils.data
-import utils.utils as utils
+import utils.helpers as utils
 from utils.read_config import ConfigYamlParserMPII
 
 
@@ -23,9 +23,21 @@ class MPIIAnnotationHandler:
 
     TODO: Handle testing annotations in this class. (MAY BE...)
 
+    Attributes:
+        center (numpy.ndarray): Center points of the person bounding boxes in MPII dataset with shape ``(data_length, 2)``.
+        scale (numpy.ndarray): Scale factor corresponding to image size with respect to a reference value (Reference value is 200 pixel for MPII dataset). Shape ``(data_length,)``.
+        part (numpy.ndarray): Keypoint coordinates corresponding to each sample. Shape ``(data_length, 16, 2)``.
+        visible (numpy.ndarray): Visibility flag corresponding to each keypoint in the image sample. Shape ``(data_length, 16, 1)``.
+        normalize (numpy.ndarray): Shape ``(data_length,)``.
+        image_filename (list[str]): Name of image file corresponding to each sample. Length ``data_length``.
+        n_train_samples (int): Number of samples in the training annotation file.
+        n_validation_samples (int): Number of samples in the validation annotation file.
+        image_dir (str): Path to directory containing the MPII dataset images.
+        keypoint_info (dict): Information about the human-pose keypoints. Taken from ``config.yaml`` file of MPII dataset. Information under ```['data']['MPII']['parts']``` in ``config.yaml``.
+
     Args:
-        train_annotation_file (str): Path to annotations (a.k.a. labels) file for training set.
-        validation_annotation_file (str): Path to annotations (a.k.a. labels) file for validation set.
+        training_annotation_file (str): Path to annotations (a.k.a. labels) file for training set in ``.h5`` format.
+        validation_annotation_file (str): Path to annotations (a.k.a. labels) file for validation set in ``.h5`` format.
         image_dir (str): Path to directory containing the MPII dataset images.
         keypoint_info (dict): Information about the human-pose keypoints. Taken from ``config.yaml`` file of MPII dataset. Information under ```['data']['MPII']['parts']``` in ``config.yaml``.
 
@@ -33,87 +45,127 @@ class MPIIAnnotationHandler:
         * https://dbcollection.readthedocs.io/en/latest/datasets/mpii_pose.html
     """
 
-    def __init__(self, train_annotation_file, validation_annotation_file, image_dir, keypoint_info):
+    def __init__(self, training_annotation_file, validation_annotation_file, image_dir, keypoint_info):
         print('loading data...')
         tic = time.time()
 
-        train_file = h5py.File(train_annotation_file, 'r')
-        validation_file = h5py.File(validation_annotation_file, 'r')
         self.image_dir = image_dir
         self.keypoint_info = keypoint_info
 
-        train_center = train_file['center'][()]  # center coordinates (x, y) of a single person detection
-        train_scale = train_file['scale'][()]
-        train_part = train_file['part'][()]
-        train_visible = train_file['visible'][()]
-        train_normalize = train_file['normalize'][()]
-
-        validation_center = validation_file['center'][()]
-        validation_scale = validation_file['scale'][()]
-        validation_part = validation_file['part'][()]
-        validation_visible = validation_file['visible'][()]
-        validation_normalize = validation_file['normalize'][()]
-
-        self.n_train_samples = len(train_center)
-        """
-        int: Number of training samples available in dataset.
-        """
-
-        self.n_validation_samples = len(validation_center)
-        """
-        int: Number of validation samples available in dataset.
-        """
-
-        train_imgname = [None] * self.n_train_samples
-        for i in range(self.n_train_samples):
-            train_imgname[i] = train_file['imgname'][i].decode('UTF-8')
-
-        validation_imgname = [None] * self.n_validation_samples
-        for i in range(self.n_validation_samples):
-            validation_imgname[i] = validation_file['imgname'][i].decode('UTF-8')
-
-        self.center = np.append(train_center, validation_center, axis=0)
-        self.scale = np.append(train_scale, validation_scale)
-        self.part = np.append(train_part, validation_part, axis=0)
-        self.visible = np.append(train_visible, validation_visible, axis=0)
-        self.normalize = np.append(train_normalize, validation_normalize)
-        self.imgname = train_imgname + validation_imgname
+        (self.center, self.scale, self.part, self.visible, self.normalize, self.image_filename, self.n_train_samples, self.n_validation_samples) = self.__load_training_and_validation_annotation_file(training_annotation_file, validation_annotation_file)
 
         print('Done (t={:0.2f}s)'.format(time.time() - tic))
 
-    def get_annotation(self, idx):
+    def __load_annotations(self, annotation_file):
+        """
+
+        Args:
+            annotation_file (str): Path to ``.h5`` annotation file.
+
+        Returns:
+            tuple: Tuple containing following elements in given order:
+                - center (numpy.ndarray): Shape ``(data_length, 2)``.
+                - scale (numpy.ndarray): Shape ``(data_length,)``.
+                - part (numpy.ndarray): Shape ``(data_length, 16, 2)``.
+                - visible (numpy.ndarray): Shape ``(data_length, 16, 1)``.
+                - normalize (numpy.ndarray): Shape ``(data_length,)``.
+                - data_length (int): Number of samples in the data.
+                - filename (list[str]): Length ``data_length``.
+
+        """
+        data = h5py.File(annotation_file, 'r')
+
+        center = data['center'][()]  # center coordinates (x, y) of a single person detection
+        scale = data['scale'][()]
+        part = data['part'][()]
+        visible = data['visible'][()]
+        normalize = data['normalize'][()]
+
+        data_length = len(center)
+
+        filename = [None] * data_length
+        for i in range(self.n_train_samples):
+            filename[i] = data['imgname'][i].decode('UTF-8')
+
+        return center, scale, part, visible, normalize, data_length, filename
+
+    def __load_training_and_validation_annotation_file(self, training_annotation_file, validation_annotation_file):
+        """
+        Load training and validation annotation files.
+
+        Args:
+            training_annotation_file (str): Path to training annotation file (`.h5` format).
+            validation_annotation_file (str): Path to validation annotation file (`.h5` format).
+
+        Returns:
+            tuple: Tuple containing following elements in given order:
+                - center (numpy.ndarray): Shape ``(data_length, 2)``.
+                - scale (numpy.ndarray): Shape ``(data_length,)``.
+                - part (numpy.ndarray): Shape ``(data_length, 16, 2)``.
+                - visible (numpy.ndarray): Shape ``(data_length, 16, 1)``.
+                - normalize (numpy.ndarray): Shape ``(data_length,)``.
+                - filename (list[str]): Length ``data_length``.
+                - training_data_length (int): Number of samples in the training annotation file.
+                - validation_data_length (int): Number of samples in the validation annotation file.
+
+        Notes:
+            * ``data_length = training_data_length + validation_data_length``
+
+        """
+        tcenter, tscale, tpart, tvisible, tnormalize, tdata_length, tfilename = self.__load_annotations(training_annotation_file)
+        vcenter, vscale, vpart, vvisible, vnormalize, vdata_length, vfilename = self.__load_annotations(validation_annotation_file)
+
+        center = np.append(tcenter, vcenter, axis=0)
+        scale = np.append(tscale, vscale)
+        part = np.append(tpart, vpart, axis=0)
+        visible = np.append(tvisible, vvisible, axis=0)
+        normalize = np.append(tnormalize, vnormalize)
+        filename = tfilename + vfilename
+
+        training_data_length = tdata_length
+        validation_data_length = vdata_length
+
+        return center, scale, part, visible, normalize, filename, training_data_length, validation_data_length
+
+    def __get_image_file_path(self, image_file_name):
+        """
+        Get image file path from image file name.
+
+        Args:
+            image_file_name (str): Image file name.
+
+        Returns:
+            str: complete path to the given image file.
+        """
+        return osp.join(self.image_dir, image_file_name)
+
+    def get_annotation(self, idx, full_path=True):
         """
         Returns data from h5 file for train or val set corresponding to given index ``idx``.
 
         Args:
             idx (int): Index of the data.
+            full_path (bool): If ``True``, returns the full path of the sample image file. If ``false``, returns ONLY the image file name and NOT the full path. Default is ``True``.
 
         Returns:
-            tuple: Tuple containing (image_filename, part_keypoints, visibility_flag, center_coordinates, scale_factor, normalize_factor) from MPII annotations.
+            tuple: Tuple containing MPII dataset annotation in given order:
+                - image_filename
+                - keypoints (numpy.ndarray): Keypoints corresponding to index ``idx`` with shape ``(1, 16, 3)`` with each row of idx ``0`` containing ``(x, y, visibility_flag)``.
+                - visibility_flag
+                - center_coordinates
+                - scale_factor
+                - normalize_factor
 
         Notes:
             - ``part`` is an array of human-pose keypoint coordinates in the image.
         """
-        return self.imgname[idx], self.part[idx], self.visible[idx], self.center[idx], self.scale[idx], self.normalize[idx]
+        image_filename = self.image_filename[idx]
+        if full_path:
+            image_filename = self.__get_image_file_path(image_filename)
 
-    def get_imgpath(self, img_name):
-        """
-        Get image file path from image file name.
+        keypoints = np.insert(self.part[idx], 2, self.visible[idx], axis=1)[np.newaxis, :, :]
 
-        Args:
-            img_name (str): Image file name.
-
-        Returns:
-            str: complete path to the given image file.
-        """
-        return osp.join(self.image_dir, img_name)
-
-    def get_length(self):
-        """
-        Returns:
-            tuple[int, int]: tuple of elements ``(sample_count_in_training_set, sample_count_in_validation_set)``.
-        """
-        return self.n_train_samples, self.n_validation_samples
+        return image_filename, keypoints, self.visible[idx], self.center[idx], self.scale[idx], self.normalize[idx]
 
     def split_data(self):
         """
@@ -129,105 +181,6 @@ class MPIIAnnotationHandler:
         valid = [i + self.n_train_samples for i in range(self.n_validation_samples)]
         return np.array(train), np.array(valid)
 
-    def get_image(self, idx):
-        """
-        Returns the image at the provided index.
-
-        Args:
-            idx (int): Index of the data sample.
-
-        Returns:
-            numpy.ndarray: Returns a numpy array, which comes with a dict of meta data at its ‘meta’ attribute.
-
-        References:
-            imageio.imread: https://imageio.readthedocs.io/en/stable/userapi.html#imageio.imread
-        """
-        imgname, __, __, __, __, __ = self.get_annotation(idx)
-        path = osp.join(self.image_dir, imgname)
-        img = imread(path)
-        return img
-
-    def load_image(self, path):
-        """
-        Load image from path.
-
-        Args:
-            path (str): Image file path.
-
-        Returns:
-            numpy.ndarray: Returns a numpy array, which comes with a dict of meta data at its ‘meta’ attribute.
-
-        References:
-            imageio.imread: https://imageio.readthedocs.io/en/stable/userapi.html#imageio.imread
-        """
-        return imread(path)
-
-    def get_imgpath_from_idx(self, idx):
-        """
-        Returns the path of image file corresponding to provided data index.
-
-        Args:
-            idx (int): Index of the data sample.
-
-        Returns:
-            str: Path of image file.
-
-        """
-        imgname, __, __, __, __, __ = self.get_annotation(idx)
-        path = osp.join(self.image_dir, imgname)
-        return path
-
-    def get_kps(self, idx):
-        """
-        Get Key Points on the body.
-
-        Args:
-            idx (int): Index of the data sample.
-
-        Returns:
-            numpy.ndarray: Keypoints corresponding to index ``idx`` with shape ``(1, 16, 3)`` with each row of idx ``0`` containing ``(x, y, visibility_flag)``.
-        """
-        __, part, visible, __, __, __ = self.get_annotation(idx)
-        kp2 = np.insert(part, 2, visible, axis=1)
-        kps = np.zeros((1, 16, 3))
-        kps[0] = kp2
-        return kps
-
-    def merge_keypoints_visibility(self, kp, visibility):
-        """
-        Args:
-            kp (numpy.ndarray): keypoints corresponding to datasample with shape ``(16, 2)``.
-            visibility (numpy.ndarray): visibility corresponding to datasample with shape ``(16,)``.
-
-        Returns:
-            numpy.ndarray: Keypoints with shape ``(1, 16, 3)`` with each row of idx ``0`` containing ``(x, y, visibility_flag)``.
-        """
-        kp2 = np.insert(kp, 2, visibility, axis=1)
-        kps = np.zeros((1, 16, 3))
-        kps[0] = kp2
-        return kps
-
-    def get_normalized(self, idx):
-        """
-        Returns normalized value for given index from MPII dataset.
-
-        Args:
-            idx (int): Index of the data sample.
-
-        Returns:
-            float:
-        """
-        __, __, __, __, __, n = self.get_annotation(idx)
-        return n
-
-    def get_center(self, idx):
-        __, __, __, c, __, __ = self.get_annotation(idx)
-        return c
-
-    def get_scale(self, idx):
-        __, __, __, __, s, __ = self.get_annotation(idx)
-        return s
-
 
 class GenerateHeatmap:
     """
@@ -235,52 +188,20 @@ class GenerateHeatmap:
 
     Args:
         output_resolution (int): Output resolution. Default is ``64``.
-        num_parts (int): Number of parts. This number depends on the dataset. MPII has ``16`` parts. Refer the labels of the parts in ``torch_shnet.utils.data.parts['mpii']`` attribute of the dictionary for more details.
+        num_parts (int): Number of parts. This number depends on the dataset. MPII has ``16`` parts. Refer the ``config.yaml`` file for details under ``["data"]["MPII"]["parts"]`` attribute for more details.
 
     Examples:
-        >>> gen_heatmap = GenerateHeatmap( output_resolution=64, num_parts=16)
-        >>> keypoints = np.random.rand(1, 16, 3)
-        >>> heat_map = gen_heatmap(keypoints)   # For MPII dataset this is (1, 16, 3)
-
+        >>> gen_heatmap = GenerateHeatmap(output_resolution=64, num_parts=16)
+        >>> keypoints = np.random.rand(1, 16, 3)        # keypoints for MPII dataset
+        >>> heat_map = gen_heatmap(keypoints)           # output shape is (16, 64, 64)
     """
 
     def __init__(self, output_resolution=64, num_parts=16):
         self.output_resolution = output_resolution
         self.num_parts = num_parts
-
         sigma = self.output_resolution / 64.
         self.sigma = sigma
-        self.gaussian, self.x_center, self.y_center = GenerateHeatmap.create_gaussian_kernel(sigma=self.sigma)
-
-    @staticmethod
-    def create_gaussian_kernel(sigma=1.0, size=None):
-        """
-        Method to create a gaussian kernel.
-
-        Args:
-            sigma (float): Standard deviation of gaussian kernel.
-            size (int): Size of gaussian kernel. Default is ``None``.
-
-        Returns:
-            tuple[numpy.ndarray, int, int]: Tuple of length ``3`` containing:
-                - numpy.ndarray: Gaussian Kernel of shape (size, size). Default shape is ``(9, 9)``.
-                - int: Gaussian kernel center (mean) along x-axis.
-                - int: Gaussian kernel center (mean) along y-axis.
-        """
-
-        if size is None:
-            size = 6 * sigma + 3
-            x_center = y_center = 3 * sigma + 1
-        else:
-            x_center = y_center = int((size-1)/2)
-
-        assert int(size) % 2 == 1, f"Size {size} must be an odd number."
-
-        x = np.arange(start=0, stop=size, step=1, dtype=float)
-        y = x[:, None]
-
-        gaussian = np.exp(- ((x - x_center) ** 2 + (y - y_center) ** 2) / (2 * sigma ** 2))
-        return gaussian, x_center, y_center
+        self.gaussian, self.x_center, self.y_center = utils.create_gaussian_kernel(sigma=self.sigma)
 
     def __call__(self, keypoints):
         """
@@ -291,7 +212,6 @@ class GenerateHeatmap:
 
         Returns:
             numpy.ndarray: Heatmap of keypoints with shape ``(num_parts, output_resolution, output_resolution)``.
-
         """
         heatmaps_shape = (self.num_parts, self.output_resolution, self.output_resolution)
         heatmaps = np.zeros(shape=heatmaps_shape, dtype=np.float32)
@@ -327,30 +247,31 @@ class MPIIDataset(torch.utils.data.Dataset):
     MPII dataset handling.
 
     Args:
-        input_resolution (int): Input resolution of image samples.
-        output_resolution (int): Output resolution of heatmaps
-        num_parts (int): Number of parts on the body to recognize. For MPII dataset, this value is ``16``.
         indices (numpy.ndarray): Indices of the dataset.
         mpii_annotation_handle (MPIIAnnotationHandler): Object to handle MPII dataset annotations.
+        input_resolution (int): Desired Input resolution of image samples to pass in neural network. Default is ``256`` pixel.
+        output_resolution (int): Desired Output resolution of heatmaps to form ground truth of neural network. Default is ``64``pixel.
+        num_parts (int): Number of parts on the body to recognize. For MPII dataset, this value is ``16``.
         reference_image_size (int): Reference size of the image according to what scaling was done. This value is ``200 px`` for MPII dataset. The default is `200`.
         image_scale_factor_range (tuple[float, float]): Tuple of length ``2`` as (image_scaling_factor_lower_limit, image_scaling_factor_upper_limit). Default is ``(0.75, 1.75)``.
         image_color_jitter_probability (float): Probability of random jittering of image sample. Default is `0.5`.
+        image_horizontal_flip_probability (float): Probability of flipping the image horizontally. Default is `0.5`.
         hue_max_delta (float): Maximum purturbabtion in the hue of image. Default is ``0.2``.
         saturation_min_delta (float): Minimum saturation factor. Default is ``0.2``.
         brightness_max_delta (float): Maximum possible change in image brightness. Default is ``0.3``.
         contrast_min_delta (float): minimum possible change in contrast of image. Default is ``0.5``.
-
     """
     def __init__(self,
-                 input_resolution,
-                 output_resolution,
-                 num_parts,
                  indices,
                  mpii_annotation_handle,
+                 input_resolution=256,
+                 output_resolution=64,
+                 num_parts=16,
                  reference_image_size=200,
                  max_rotation_angle=30.,
                  image_scale_factor_range=(0.75, 1.75),
                  image_color_jitter_probability=0.5,
+                 image_horizontal_flip_probability=0.5,
                  hue_max_delta=0.2,
                  saturation_min_delta=0.5,
                  brightness_max_delta=0.3,
@@ -359,6 +280,7 @@ class MPIIDataset(torch.utils.data.Dataset):
         assert image_scale_factor_range[0] > 0 and image_scale_factor_range[1] > 0
         assert image_scale_factor_range[0] <= image_scale_factor_range[1]
         assert 0. < image_color_jitter_probability < 1.0
+        assert 0. < image_horizontal_flip_probability < 1.0
 
         self.input_resolution = input_resolution
         self.output_resolution = output_resolution
@@ -368,6 +290,7 @@ class MPIIDataset(torch.utils.data.Dataset):
         self.max_rotation_angle = max_rotation_angle
         self.image_scaling_factor = {"min": image_scale_factor_range[0], "max": image_scale_factor_range[1]}
         self.image_color_jitter_probability = image_color_jitter_probability
+        self.image_horizontal_flip_probability = image_horizontal_flip_probability
         self.hue_max_delta = hue_max_delta
         self.saturation_min_delta = saturation_min_delta
         self.brightness_max_delta = brightness_max_delta
@@ -379,9 +302,9 @@ class MPIIDataset(torch.utils.data.Dataset):
         return len(self.indices)
 
     def __getitem__(self, idx):
-        return self.load_image(self.indices[idx % len(self.indices)])
+        return self.__load_data__(self.indices[idx % len(self.indices)])
 
-    def load_image(self, idx):
+    def __load_data__(self, idx):
         """
         Load the image at the given index `idx` of the dataset.
 
@@ -390,72 +313,139 @@ class MPIIDataset(torch.utils.data.Dataset):
 
         Returns:
             tuple[numpy.ndarray, numpy.ndarray]: Tuple of shape ``(2,)`` containing:
-                - numpy.ndarray: Input image of shape ``(H_in, W_in, C_in)``. Mostly as ``H_in=W_in=256`` and channels ``C_in=3``. The input image is normalized to have pixel values between ``[0, 1]``. The content of the numpy array is of ``np.float32``.
-                - numpy.ndarray: Output heatmaps containing keypoints on the person body of shape ``(Parts, H_out, W_out)``. Likely to be of shape ``(16, 64, 64)``. The content of the numpy array is of ``np.float32``.
+                - numpy.ndarray: Input image of shape ``(H_in, W_in, C_in)``. Mostly as ``H_in=W_in=256`` and channels ``C_in=3``. The input image is normalized to have pixel values between ``[0, 1]``. The content of the numpy array is of type ``numpy.float32``.
+                - numpy.ndarray: Output heatmaps containing keypoints on the person's body of shape ``(Parts, H_out, W_out)``. For MPII dataset ``(Parts, H_out, W_out)=(16, 64, 64)``. The content of the numpy array is of ``numpy.float32``.
         """
-        # load image and relevant data for label
-        image_filename, part_keypoints, visibility_flag, c, s, normalize = self.mpii_annotation_handle.get_annotation(idx)
-        path = self.mpii_annotation_handle.get_imgpath(image_filename)
-        orig_img = self.mpii_annotation_handle.load_image(path)
-        orig_keypoints = self.mpii_annotation_handle.merge_keypoints_visibility(part_keypoints, visibility_flag)
 
-        kptmp = orig_keypoints.copy()
+        image_path, original_keypoints, visibility_flag, c, s, normalize = self.mpii_annotation_handle.get_annotation(idx)
 
-        # crop the image to extract the image of the person
-        cropped = utils.utils.crop(img=orig_img, center=c, scale=s, resolution=(self.input_resolution, self.input_resolution), rotation=0)
+        image = imread(image_path)      # load image with shape ``(H, W, C)``.
 
-        # Transform pixel locations of keypoints to desired input image resolution
-        for i in range(np.shape(orig_keypoints)[1]):
-            if orig_keypoints[0, i, 0] > 0:
-                orig_keypoints[0, i, :2] = utils.utils.transform(pt=orig_keypoints[0, i, :2], center=c, scale=s, resolution=(self.input_resolution, self.input_resolution))
+        # transform original image to desired input resolution and scale
+        image = utils.crop(img=image, center=c, scale=s, resolution=(self.input_resolution, self.input_resolution), rotation=0)
 
-        keypoints = np.copy(orig_keypoints)
+        input_keypoints = self.__transform_original_keypoints_to_input_resolution(original_keypoints, center=c, scale=s)
 
-        height, width = cropped.shape[0:2]   # height and width of cropped image
+        height, width = image.shape[0:2]                                    # height and width of input image
+        center = np.array((width / 2, height / 2))                          # center of input image
+        scale = max(height, width) / self.reference_image_size              # scale input image.
 
-        center = np.array((width / 2, height / 2))   # center of cropped image
+        image, output_keypoints = self.__augment_input_output_with_rotation_and_scale(image, input_keypoints, center, scale)
 
-        scale = max(height, width) / self.reference_image_size          # scale cropped image.
-
-        aug_rot = (np.random.random() * 2 - 1) * self.max_rotation_angle    # augmentation - random rotation (in degrees) of cropped image
-
-        aug_scale = np.random.random() * (self.image_scaling_factor['max'] - self.image_scaling_factor['min']) + self.image_scaling_factor['min']     # augmentation - random scaling of cropped image
-
-        scale *= aug_scale          # scale augmentation
-
-        mat = utils.utils.get_transform(center, scale, (self.input_resolution, self.input_resolution), aug_rot)[:2]  # transformation matrix - transform the image as per the augmentation
-
-        inp = cv2.warpAffine(cropped, mat, (self.input_resolution, self.input_resolution)).astype(np.float32) / 255   # image (data) augmentation
-
-        # transform the output keypoints to be included in heatmaps as per the augmentation
-        mat_mask = utils.utils.get_transform(center, scale, (self.output_resolution, self.output_resolution), aug_rot)[:2]
-        keypoints[:, :, 0:2] = utils.utils.kpt_affine(keypoints[:, :, 0:2], mat_mask)
-
-        # random color jitter
         if np.random.rand() > self.image_color_jitter_probability:
-            flipped_keypoint_ids = self.mpii_annotation_handle.keypoint_info['parts']['flipped_ids']
+            image = self.__random_color_jitter(image)
 
-            inp = self.random_color_jitter(inp)
-            inp = inp[:, ::-1]
-            keypoints = keypoints[:, flipped_keypoint_ids]
-            keypoints[:, :, 0] = self.output_resolution - keypoints[:, :, 0]
-            orig_keypoints = orig_keypoints[:, flipped_keypoint_ids]
-            orig_keypoints[:, :, 0] = self.input_resolution - orig_keypoints[:, :, 0]
+        if np.random.rand() > self.image_horizontal_flip_probability:
+            image, input_keypoints, output_keypoints = self.__horizontal_image_flip(image, input_keypoints, output_keypoints)
 
         # set keypoints to 0 when were not visible initially (so heatmap all 0s)
-        for i in range(np.shape(orig_keypoints)[1]):
-            if kptmp[0, i, 0] == 0 and kptmp[0, i, 1] == 0:
-                keypoints[0, i, 0] = 0
-                keypoints[0, i, 1] = 0
-                orig_keypoints[0, i, 0] = 0
-                orig_keypoints[0, i, 1] = 0
+        for i in range(np.shape(input_keypoints)[1]):
+            if original_keypoints[0, i, 0] == 0 and original_keypoints[0, i, 1] == 0:
+                output_keypoints[0, i, 0] = 0
+                output_keypoints[0, i, 1] = 0
+                input_keypoints[0, i, 0] = 0
+                input_keypoints[0, i, 1] = 0
 
-        # generate heatmaps on output resolution
-        heatmaps = self.generate_heatmap(keypoints)
+        heatmaps = self.generate_heatmap(output_keypoints)      # generate heatmaps on output resolution
 
-        return inp.astype(np.float32), heatmaps.astype(np.float32)
+        return image.astype(np.float32), heatmaps.astype(np.float32)
 
-    def random_color_jitter(self, data):
+    def __transform_original_keypoints_to_input_resolution(self, original_keypoints, center, scale):
+        """
+        Transform original keypoint to desired input resolution scale.
+
+        Args:
+            original_keypoints (numpy.ndarray): Keypoint coordinates with shape ``(1, 16, 3)``.
+            center (numpy.ndarray): Center coordinates with shape ``(2,)``.
+            scale (float): Scale factor.
+
+        Returns:
+            numpy.ndarray: Keypoint coordinates transformed to desired input resolution with shape ``(1, 16, 3)``.
+
+        """
+        # Transform pixel locations of keypoints to desired input image resolution
+        input_keypoints = original_keypoints.copy()
+        for i in range(np.shape(input_keypoints)[1]):
+            if input_keypoints[0, i, 0] > 0:
+                input_keypoints[0, i, :2] = utils.transform(pt=input_keypoints[0, i, :2], center=center, scale=scale, resolution=(self.input_resolution, self.input_resolution))
+
+        return input_keypoints
+
+    def __horizontal_image_flip(self, image, input_keypoints, output_keypoints):
+        """
+        Horizontal Flip of the image.
+
+        Args:
+            image (numpy.ndarray): Input image of shape ``(H, W, C)``.
+            input_keypoints (numpy.ndarray): Keypoint locations in input image with shape ```(1, 16, 3)```.
+            output_keypoints (numpy.ndarray): Keypoint locations in output image with shape ```(1, 16, 3)```.
+
+        Returns:
+            tuple: Tuple containing following elements in given order:
+                - image (numpy.ndarray): Flipped image of same shape as input ``(H, W, C)``.
+                - input_keypoints (numpy.ndarray): Flipped location of input image keypoints with shape ``(1, 16, 3)``.
+                - output_keypoints (numpy.ndarray): Flipped location of output heatmap keypoints with shape ``(1, 16, 3)``.
+
+        """
+        flipped_keypoint_ids = self.mpii_annotation_handle.keypoint_info['parts']['flipped_ids']
+
+        image = image[:, ::-1]          # horizontal flip image, WIDTH (a.k.a. X-axis) coordinates of the image are flipped.
+
+        output_keypoints = output_keypoints[:, flipped_keypoint_ids]
+        output_keypoints[:, :, 0] = self.output_resolution - output_keypoints[:, :, 0]
+
+        input_keypoints = input_keypoints[:, flipped_keypoint_ids]
+        input_keypoints[:, :, 0] = self.input_resolution - input_keypoints[:, :, 0]
+
+        return image, input_keypoints, output_keypoints
+
+    def __augment_input_output_with_rotation_and_scale(self, image, keypoints, center, scale):
+        """
+        Augment input image and corresponding output target-keypoint-pixel-locations with rotation and scaling factor.
+
+        Args:
+            image (numpy.ndarray): Image sample with shape ``(H, W, C)``.
+            keypoints (numpy.ndarray): Keypoints in the input image resolution with Shape ``(1, 16, 3)``
+            center (numpy.ndarray): Center of image sample with shape ``(2,)``
+            scale (float): Original scale factor.
+
+        Returns:
+            tuple[numpy.ndarray, numpy.ndarray]: Tuple of length ``2`` with following elements in the given order:
+                - image (numpy.ndarray): Transformed Image after rotation and scaling augmentation.
+                - keypoints (numpy.ndarray): Transformed keypoints after rotation and scaling augmentation in the output heatmap.
+
+        Notes:
+            - ``Input keypoints`` are in the ``input image reference frame``.
+            - ``Output keypoints`` are in the ``output heatmap reference frame``.
+        """
+        augment_rotation_angle, augment_scale_factor = self.__augment_rotation_and_scale()
+
+        scale *= augment_scale_factor       # scale factor augmentation
+
+        input_transformation_matrix = utils.get_transform(center, scale, (self.input_resolution, self.input_resolution), augment_rotation_angle, self.reference_image_size)[:2]
+        image = cv2.warpAffine(image, input_transformation_matrix, (self.input_resolution, self.input_resolution)).astype(np.float32) / 255.  # image (data) augmentation
+
+        # transform the output keypoints to be included in heatmaps as per the augmentation
+        keypoint_transformation_matrix = utils.get_transform(center, scale, (self.output_resolution, self.output_resolution), augment_rotation_angle, self.reference_image_size)[:2]
+        keypoints[:, :, 0:2] = utils.kpt_affine(keypoints[:, :, 0:2], keypoint_transformation_matrix)
+
+        return image, keypoints
+
+    def __augment_rotation_and_scale(self):
+        """
+        Sample rotation and scaling factor for image augmentation.
+
+        Returns:
+            tuple[float, float]: Tuple of length `2` containing rotation angle (in degrees) and scaling factor for augmentation.
+        """
+        # random rotation angle
+        augment_rotation_angle = (np.random.random() * 2 - 1) * self.max_rotation_angle
+
+        # random scale factor
+        augment_scale_factor = np.random.random() * (self.image_scaling_factor['max'] - self.image_scaling_factor['min']) + self.image_scaling_factor['min']
+        return augment_rotation_angle, augment_scale_factor
+
+    def __random_color_jitter(self, data):
         """
         Color jittering of input image.
 
@@ -489,7 +479,6 @@ class MPIIDataset(torch.utils.data.Dataset):
         mean = data.mean(axis=2, keepdims=True)
         data = (data - mean) * (np.random.random() + self.contrast_min_delta) + mean
         data = np.minimum(np.maximum(data, 0), 1)
-
         return data
 
 
@@ -503,8 +492,6 @@ def init(config):
     Returns:
         types.LambdaType:
     """
-    current_path = osp.dirname(os.path.abspath(__file__))
-    sys.path.append(current_path)
 
     batch_size = int(config.NN_TRAINING_PARAMS['batch_size'])
     input_resolution = int(config.NN_TRAINING_PARAMS['input_resolution'])
@@ -514,7 +501,7 @@ def init(config):
     num_parts = int(config.PARTS['max_count'])
 
     mpii_annotation_handle = MPIIAnnotationHandler(
-        train_annotation_file=config.TRAINING_ANNOTATION_FILE,
+        training_annotation_file=config.TRAINING_ANNOTATION_FILE,
         validation_annotation_file=config.VALIDATION_ANNOTATION_FILE,
         image_dir=config.IMAGE_DIR,
         keypoint_info=config.PARTS)
