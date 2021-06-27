@@ -7,16 +7,36 @@ class Conv2DCustom(nn.Module):
     Custom convolutional layer that can also apply batch normalization and ReLU activation after convolution.
 
     Args:
-        in_channels (int): Input channels
-        out_channels (int): Output channels
+        in_channels (int): Input channels ``C_in``.
+        out_channels (int): Output channels ``C_out``.
         kernel_size (int): Kernel size of convolutional kernel. Default is `3`.
         stride (int): Stride in convolution. Default is `1`.
         batch_normalization (bool): If `True`, use batch normalization operation after convolution. Default is `False`.
-        relu_activation (bool): If `True`, use ReLU activation after convolution. Default is `True`.
+        relu_activation (bool): If `True`, use ``ReLU`` activation after convolution. Default is `True`.
+
+    Inputs:
+        - x (torch.Tensor): Shape ``(N, C_in, H_in, W_in)``.
+
+    Outputs:
+        - torch.Tensor: Shape ``(N, C_out, H_out, W_out)``.
 
     Shape:
-        - input: (N, C_in, H_in, W_in)
-        - output: (N, C_out, H_out, W_out)
+        - input: ``(N, C_in, H_in, W_in)``.
+        - output: ``(N, C_out, H_out, W_out)``.
+
+    Notes:
+        - ``H_out = (H_in + 2 * int((K-1)//2) - K)/S + 1``
+        - ``W_out = (W_in + 2 * int((K-1)//2) - K)/S + 1``
+        - ``H`` - Height
+        - ``W`` - Width
+        - ``C`` - Channels
+        - ``N`` - Batch size
+        - ``K`` - Convolutional Kernel size
+        - ``S`` - Stride
+        - Padding ``P=int((K-1)/2)``.
+
+    References:
+        * For more information on input and output tensor dimensions check https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html.
     """
 
     def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, batch_normalization=False,
@@ -49,10 +69,10 @@ class Conv2DCustom(nn.Module):
         Forward pass. For more information on input and output tensor dimensions check https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html.
 
         Args:
-            x (torch.Tensor): Shape (N, C_in, H_in, W_in)
+            x (torch.Tensor): Shape ``(N, C_in, H_in, W_in)``
 
-        Return:
-            torch.Tensor: Shape (N, C_out, H_out, W_out)
+        Returns:
+            torch.Tensor: Shape ``(N, C_out, H_out, W_out)``
         """
 
         assert x.size()[
@@ -76,6 +96,12 @@ class ResidualBlock2D(nn.Module):
     Args:
         in_channels (int): input number of channels
         out_channels (int): output number of channels
+
+    Inputs:
+        - x (torch.Tensor): Shape (N, C_in, H, W)
+
+    Outputs:
+        - torch.Tensor: Shape (N, C_out, H, W)
 
     Shape:
         - input: (N, C_in, H, W)
@@ -110,7 +136,7 @@ class ResidualBlock2D(nn.Module):
         Args:
             x (torch.Tensor): Shape (N, C_in, H, W)
 
-        Return:
+        Returns:
             torch.Tensor: Shape (N, C_out, H, W)
         """
         if self.skip_layer is not None:
@@ -134,9 +160,15 @@ class HourGlassRecursive2D(nn.Module):
         n_channels (int): Channel size.
         channel_increase (int): Channel increase count.
 
+    Inputs:
+        - x (torch.Tensor): Torch tensor of shape ``(N, C, H, W)``.
+
+    Outputs:
+        - torch.Tensor: Torch tensor of shape ``(N, C, H, W)``.
+
     Shape:
-        - input: (N, C, H, W)
-        - output: (N, C, H, W)
+        - input: ``(N, C, H, W)``
+        - output: ``(N, C, H, W)``
     """
 
     def __init__(self, n_recursion, n_channels, channel_increase=0):
@@ -173,6 +205,13 @@ class HeatMapLoss(nn.Module):
     """
     Heat map loss function
 
+    Inputs:
+        - prediction (torch.Tensor): Torch tensor of shape ``(N, C, H, W)``.
+        - ground_truth (torch.Tensor): Torch tensor of shape ``(N, C, H, W)``.
+
+    Outputs:
+        - torch.Tensor: Torch tensor of shape ``(N,)`` containing the **loss**.
+
     Shape:
         - input:
              - prediction: (N, C, H, W)
@@ -184,18 +223,20 @@ class HeatMapLoss(nn.Module):
 
     def forward(self, prediction, ground_truth):
         """
-        Args:
-            prediction (torch.Tensor): Shape (N, C, H, W)
-            ground_truth (torch.Tensor): Shape (N, C, H, W)
+        Forward pass of the module.
 
-        Return:
-            torch.Tensor: Loss with shape (N,)
+        Args:
+            prediction (torch.Tensor): Torch tensor with shape ``(N, C, H, W)``.
+            ground_truth (torch.Tensor): Torch tensor with shape ``(N, C, H, W)``.
+
+        Returns:
+            torch.Tensor: Loss with shape ``(N,)``
 
         Notes:
-            N: Batch-Size
-            C: Channel
-            H: Height
-            W: Width
+            - ``N``: Batch-Size
+            - ``C``: Channel
+            - ``H``: Height
+            - ``W``: Width
         """
         loss = (prediction - ground_truth)*(prediction - ground_truth)
         loss = loss.mean(dim=3).mean(dim=2).mean(dim=1)
@@ -204,14 +245,28 @@ class HeatMapLoss(nn.Module):
 
 class HeatMapLossBatch(nn.Module):
     """
-        Heat map loss function for a batch of input.
+    Heat map loss function for a batch of input. This module evaluates loss given the prediction and groundtruth output values of a batch of heatmaps.
 
-        Shape:
-            - input:
-                 - prediction: (N, C, H, W)
-                 - ground_truth: (N, C, H, W)
-            - output: (N,)
-        """
+    Inputs:
+        - prediction (torch.Tensor): Shape ``(N, n_hourglass, C, H, W)``.
+        - ground_truth (torch.Tensor): Shape ``(N, C, H, W)``.
+
+    Outputs:
+        - torch.Tensor: Shape ``(N, n_hourglass)``.
+
+    Notes:
+        - ``N``: Batch size
+        - ``C``: Channel size
+        - ``n_hourglass``: Number of stacked hourglass modules
+        - ``H``: Height
+        - ``W``: Width
+
+    Shape:
+        - input:
+             - prediction: ``(N, C, H, W)``
+             - ground_truth: ``(N, C, H, W)``
+        - output: ``(N,)``
+    """
 
     def __init__(self):
         super(HeatMapLossBatch, self).__init__()
@@ -225,7 +280,7 @@ class HeatMapLossBatch(nn.Module):
             prediction (torch.Tensor): Shape ``(N, n_hourglass, C, H, W)``.
             ground_truth (torch.Tensor): Shape ``(N, C, H, W)``.
 
-        Return:
+        Returns:
             torch.Tensor: Shape ``(N, n_hourglass)``.
 
         Notes:
@@ -251,13 +306,25 @@ class PoseNet(nn.Module):
 
     Args:
         n_hourglass (int): Number of hourglass modules in the network stacked on one another
-        in_channels (int): Number of channels in input.
-        out_channels (int): Number of channels in output.
+        in_channels (int): Number of channels in input (``C_in``).
+        out_channels (int): Number of channels in output (``C_out``).
         channel_increase (int): Number of channels to increase in hourglass module. Default is `0`.
 
+    Inputs:
+        - x (torch.Tensor): Input tensor with shape ``(N, C_in, H_in, W_in)``.
+
+    Outputs:
+        - torch.Tensor: Output tensor with shape ``(N, C_out, H_out, W_out)=(N, n_hourglass, C_out, (H_in+1)/4, (W_in+1)/4)``.
+
     Shape:
-        - input: (N, C_in, H, W)
-        - output: (N, n_hourglass, C_out, (H+1)/4, (W+1)/4)
+        - input: ``(N, C_in, H_in, W_in)``
+        - output: ``(N, C_out, H_out, W_out)=(N, n_hourglass, C_out, (H_in+1)/4, (W_in+1)/4)``.
+
+    Notes:
+        - ``N``: Batch size
+        - ``C``: Number of channels
+        - ``H``: Input height
+        - ``W``: Input width
     """
 
     def __init__(self, n_hourglass, in_channels, out_channels, channel_increase=0):
@@ -307,16 +374,16 @@ class PoseNet(nn.Module):
     def forward(self, x):
         """
         Args:
-            x (torch.Tensor): Shape (N, C_in, H, W).
+            x (torch.Tensor): Shape ``(N, C_in, H_in, W_in)``.
 
-        Return:
-            torch.Tensor: Shape (N, n_hourglass, C_out, (H+1)/4, (W+1)/4)
+        Returns:
+            torch.Tensor: Shape ``(N, C_out, H_out, W_out)=(N, n_hourglass, C_out, (H_in+1)/4, (W_in+1)/4)``
 
         Notes:
-            N: Batch size
-            C: Number of channels
-            H: Input height
-            W: Input width
+            - N: Batch size
+            - C: Number of channels
+            - H: Input height
+            - W: Input width
         """
 
         x = self.pre_process_backbone(x)
@@ -333,26 +400,3 @@ class PoseNet(nn.Module):
                 x = x + self.merge_features[i](feature_out) + self.merge_predictions[i](prediction_out)
 
         return torch.stack(predictions_stack, dim=1)
-
-    # def calc_loss(self, prediction, ground_truth):
-    #     """
-    #     Evaluate loss given the prediction and groundtruth output values.
-    #
-    #     Args:
-    #         prediction (torch.Tensor): Shape ``(N, n_hourglass, C, (H+1)/4, (W+1)/4)``.
-    #         ground_truth (torch.Tensor): Shape ``(N, C, (H+1)/4, (W+1)/4)``.
-    #
-    #     Return:
-    #         torch.Tensor: Shape ``(N, n_hourglass)``.
-    #
-    #     Notes:
-    #         - ``(H, W)`` is the input image size used for getting the prediction of shape ``((H+1)/4, (W+1)/4)``.
-    #
-    #     """
-    #     loss_ = []
-    #     for i in range(self.n_hourglass):
-    #         loss = self.heatmap_loss(prediction=prediction[:, i], ground_truth=ground_truth)
-    #         loss_.append(loss)
-    #
-    #     loss_ = torch.stack(loss_, dim=1)
-    #     return loss_

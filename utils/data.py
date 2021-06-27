@@ -3,18 +3,16 @@
 *  GitHub: https://github.com/princeton-vl/pytorch_stacked_hourglass/
 """
 
-# import sys
-# import os
 import os.path as osp
 import time
 import h5py
 import numpy as np
-import cv2
+from cv2 import warpAffine, cvtColor, COLOR_HSV2RGB, COLOR_RGB2HSV
 from imageio import imread
-import torch
-import torch.utils.data
+from torch import tensor
+from torch.utils.data.dataset import Dataset
+from torchvision.transforms import ToTensor
 import utils.helpers as utils
-from utils.read_config import ConfigYamlParserMPII
 
 
 class MPIIAnnotationHandler:
@@ -84,7 +82,7 @@ class MPIIAnnotationHandler:
         data_length = len(center)
 
         filename = [None] * data_length
-        for i in range(self.n_train_samples):
+        for i in range(data_length):
             filename[i] = data['imgname'][i].decode('UTF-8')
 
         return center, scale, part, visible, normalize, data_length, filename
@@ -242,7 +240,7 @@ class GenerateHeatmap:
         return heatmaps
 
 
-class MPIIDataset(torch.utils.data.Dataset):
+class MPIIDataset(Dataset):
     """
     MPII dataset handling.
 
@@ -264,6 +262,7 @@ class MPIIDataset(torch.utils.data.Dataset):
     def __init__(self,
                  indices,
                  mpii_annotation_handle,
+                 transform=ToTensor(),
                  input_resolution=256,
                  output_resolution=64,
                  num_parts=16,
@@ -281,6 +280,8 @@ class MPIIDataset(torch.utils.data.Dataset):
         assert image_scale_factor_range[0] <= image_scale_factor_range[1]
         assert 0. < image_color_jitter_probability < 1.0
         assert 0. < image_horizontal_flip_probability < 1.0
+
+        self.transform = transform
 
         self.input_resolution = input_resolution
         self.output_resolution = output_resolution
@@ -302,7 +303,12 @@ class MPIIDataset(torch.utils.data.Dataset):
         return len(self.indices)
 
     def __getitem__(self, idx):
-        return self.__load_data__(self.indices[idx % len(self.indices)])
+        image, heatmaps = self.__load_data__(self.indices[idx % len(self.indices)])
+
+        if self.transform:
+            image = self.transform(image)
+        heatmaps = tensor(heatmaps)
+        return image, heatmaps
 
     def __load_data__(self, idx):
         """
@@ -387,7 +393,7 @@ class MPIIDataset(torch.utils.data.Dataset):
                 - output_keypoints (numpy.ndarray): Flipped location of output heatmap keypoints with shape ``(1, 16, 3)``.
 
         """
-        flipped_keypoint_ids = self.mpii_annotation_handle.keypoint_info['parts']['flipped_ids']
+        flipped_keypoint_ids = self.mpii_annotation_handle.keypoint_info['flipped_ids']
 
         image = image[:, ::-1]          # horizontal flip image, WIDTH (a.k.a. X-axis) coordinates of the image are flipped.
 
@@ -423,7 +429,7 @@ class MPIIDataset(torch.utils.data.Dataset):
         scale *= augment_scale_factor       # scale factor augmentation
 
         input_transformation_matrix = utils.get_transform(center, scale, (self.input_resolution, self.input_resolution), augment_rotation_angle, self.reference_image_size)[:2]
-        image = cv2.warpAffine(image, input_transformation_matrix, (self.input_resolution, self.input_resolution)).astype(np.float32) / 255.  # image (data) augmentation
+        image = warpAffine(image, input_transformation_matrix, (self.input_resolution, self.input_resolution)).astype(np.float32) / 255.  # image (data) augmentation
 
         # transform the output keypoints to be included in heatmaps as per the augmentation
         keypoint_transformation_matrix = utils.get_transform(center, scale, (self.output_resolution, self.output_resolution), augment_rotation_angle, self.reference_image_size)[:2]
@@ -457,7 +463,7 @@ class MPIIDataset(torch.utils.data.Dataset):
         """
 
         # image from RGB to HSV
-        data = cv2.cvtColor(data, cv2.COLOR_RGB2HSV)
+        data = cvtColor(data, COLOR_RGB2HSV)
 
         # hue augmentation
         delta = (np.random.random() * 2 - 1) * self.hue_max_delta
@@ -469,7 +475,7 @@ class MPIIDataset(torch.utils.data.Dataset):
         data[:, :, 1] = np.maximum(np.minimum(data[:, :, 1], 1), 0)
 
         # image from HSV to RGB
-        data = cv2.cvtColor(data, cv2.COLOR_HSV2RGB)
+        data = cvtColor(data, COLOR_HSV2RGB)
 
         # adjust brightness
         delta = (np.random.random() * 2 - 1) * self.brightness_max_delta
@@ -482,73 +488,73 @@ class MPIIDataset(torch.utils.data.Dataset):
         return data
 
 
-def init(config):
-    """
-    Initialize data loader
-
-    Args:
-        config (ConfigYamlParserMPII): Configuration parsed using ``config.yaml`` file for MPII dataset.
-
-    Returns:
-        types.LambdaType:
-    """
-
-    batch_size = int(config.NN_TRAINING_PARAMS['batch_size'])
-    input_resolution = int(config.NN_TRAINING_PARAMS['input_resolution'])
-    output_resolution = int(config.NN_TRAINING_PARAMS['output_resolution'])
-    num_workers = int(config.NN_TRAINING_PARAMS['num_workers'])
-
-    num_parts = int(config.PARTS['max_count'])
-
-    mpii_annotation_handle = MPIIAnnotationHandler(
-        training_annotation_file=config.TRAINING_ANNOTATION_FILE,
-        validation_annotation_file=config.VALIDATION_ANNOTATION_FILE,
-        image_dir=config.IMAGE_DIR,
-        keypoint_info=config.PARTS)
-
-    training_data_indices, validation_data_indices = mpii_annotation_handle.split_data()
-
-    __data_aug = config.NN_TRAINING_PARAMS['data_augmentation']
-    __img_sf = __data_aug['image_scale_factor']
-    image_scale_factor_range = (__img_sf['min'], __img_sf['max'])
-    dataset = {key: MPIIDataset(
-                        input_resolution=input_resolution,
-                        output_resolution=output_resolution,
-                        num_parts=num_parts,
-                        indices=indices,
-                        mpii_annotation_handle=mpii_annotation_handle,
-                        reference_image_size=config.REFERENCE_IMAGE_SIZE,
-                        max_rotation_angle=__data_aug['rotation_angle_max'],
-                        image_scale_factor_range=image_scale_factor_range,
-                        image_color_jitter_probability=__data_aug['image_color_jitter_probability'],
-                        hue_max_delta=__data_aug['hue_max_delta'],
-                        saturation_min_delta=__data_aug['saturation_min_delta'],
-                        brightness_max_delta=__data_aug['brightness_max_delta'],
-                        contrast_min_delta=__data_aug['contrast_min_delta']
-                    ) for key, indices in zip(['train', 'valid'], [training_data_indices, validation_data_indices])}
-
-    loaders = {}
-    for key in dataset:
-        loaders[key] = torch.utils.data.DataLoader(dataset[key], batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=False)
-
-    def gen(phase):
-        """
-        Args:
-            phase (str): Phase can take one value out of ('train', 'valid') for training and validation respectively.
-
-        Yields:
-            dict: Dictionary containing keys 'imgs' and 'heatmaps' corresponding to images and heatmaps returned in each batch.
-        """
-        iters = config.NN_TRAINING_PARAMS['{}_iterations'.format(phase)]
-        loader = loaders[phase].__iter__()
-        for i in range(iters):
-            try:
-                imgs, heatmaps = next(loader)
-            except StopIteration:   # to avoid no data provided by dataloader
-                loader = loaders[phase].__iter__()
-                imgs, heatmaps = next(loader)
-            yield {
-                'imgs': imgs,               # cropped and augmented
-                'heatmaps': heatmaps,       # based on keypoints. 0 if not in img for joint
-            }
-    return lambda key: gen(key)
+# def init(config):
+#     """
+#     Initialize data loader
+#
+#     Args:
+#         config (ConfigYamlParserMPII): Configuration parsed using ``config.yaml`` file for MPII dataset.
+#
+#     Returns:
+#         types.LambdaType:
+#     """
+#
+#     batch_size = int(config.NN_TRAINING_PARAMS['batch_size'])
+#     input_resolution = int(config.NN_TRAINING_PARAMS['input_resolution'])
+#     output_resolution = int(config.NN_TRAINING_PARAMS['output_resolution'])
+#     num_workers = int(config.NN_TRAINING_PARAMS['num_workers'])
+#
+#     num_parts = int(config.PARTS['max_count'])
+#
+#     mpii_annotation_handle = MPIIAnnotationHandler(
+#         training_annotation_file=config.TRAINING_ANNOTATION_FILE,
+#         validation_annotation_file=config.VALIDATION_ANNOTATION_FILE,
+#         image_dir=config.IMAGE_DIR,
+#         keypoint_info=config.PARTS)
+#
+#     training_data_indices, validation_data_indices = mpii_annotation_handle.split_data()
+#
+#     __data_aug = config.NN_TRAINING_PARAMS['data_augmentation']
+#     __img_sf = __data_aug['image_scale_factor']
+#     image_scale_factor_range = (__img_sf['min'], __img_sf['max'])
+#     dataset = {key: MPIIDataset(
+#                         input_resolution=input_resolution,
+#                         output_resolution=output_resolution,
+#                         num_parts=num_parts,
+#                         indices=indices,
+#                         mpii_annotation_handle=mpii_annotation_handle,
+#                         reference_image_size=config.REFERENCE_IMAGE_SIZE,
+#                         max_rotation_angle=__data_aug['rotation_angle_max'],
+#                         image_scale_factor_range=image_scale_factor_range,
+#                         image_color_jitter_probability=__data_aug['image_color_jitter_probability'],
+#                         hue_max_delta=__data_aug['hue_max_delta'],
+#                         saturation_min_delta=__data_aug['saturation_min_delta'],
+#                         brightness_max_delta=__data_aug['brightness_max_delta'],
+#                         contrast_min_delta=__data_aug['contrast_min_delta']
+#                     ) for key, indices in zip(['train', 'valid'], [training_data_indices, validation_data_indices])}
+#
+#     loaders = {}
+#     for key in dataset:
+#         loaders[key] = torch.utils.data.DataLoader(dataset[key], batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=False)
+#
+#     def gen(phase):
+#         """
+#         Args:
+#             phase (str): Phase can take one value out of ('train', 'valid') for training and validation respectively.
+#
+#         Yields:
+#             dict: Dictionary containing keys 'imgs' and 'heatmaps' corresponding to images and heatmaps returned in each batch.
+#         """
+#         iters = config.NN_TRAINING_PARAMS['{}_iterations'.format(phase)]
+#         loader = loaders[phase].__iter__()
+#         for i in range(iters):
+#             try:
+#                 imgs, heatmaps = next(loader)
+#             except StopIteration:   # to avoid no data provided by dataloader
+#                 loader = loaders[phase].__iter__()
+#                 imgs, heatmaps = next(loader)
+#             yield {
+#                 'imgs': imgs,               # cropped and augmented
+#                 'heatmaps': heatmaps,       # based on keypoints. 0 if not in img for joint
+#             }
+#     return lambda key: gen(key)
