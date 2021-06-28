@@ -4,7 +4,6 @@ import torch
 from torch import nn
 from torch.nn import DataParallel
 from utils.helpers import make_input, make_output
-from utils.read_config import ConfigYamlParserMPII
 from models import PoseNet, HeatMapLossBatch
 
 

@@ -1,7 +1,8 @@
 import numpy as np
-import cv2
+from cv2 import resize as cv2_resize
 import torch
 from torch import nn
+import h5py
 
 
 def _is_array_like(obj_):
@@ -64,7 +65,7 @@ def resize(imgs, resolution):
         * Although `resolution` argument for this function takes ``desired width`` as the first element followed by ``desired height``,
           opencv treats images as ``(H, W, C)`` or ``(H, W)`` where ``H=image_height`` comes first followed by ``W=image_width``.
     """
-    return np.array([cv2.resize(imgs[i], resolution) for i in range(imgs.shape[0])])
+    return np.array([cv2_resize(imgs[i], resolution) for i in range(imgs.shape[0])])
 
 
 def inv_mat(mat):
@@ -224,7 +225,7 @@ def crop(img, center, scale, resolution, rotation=0):
 
     new_img[new_y[0]:new_y[1], new_x[0]:new_x[1]] = img[old_y[0]:old_y[1], old_x[0]:old_x[1]]
 
-    return cv2.resize(new_img, resolution)
+    return cv2_resize(new_img, resolution)
 
 
 class HeatmapParser:
@@ -392,3 +393,77 @@ def create_gaussian_kernel(sigma=1.0, size=None):
 
     gaussian = np.exp(- ((x - x_center) ** 2 + (y - y_center) ** 2) / (2 * sigma ** 2))
     return gaussian, x_center, y_center
+
+
+def load_MPII_annotation_file(annotation_file):
+    """
+    Load the annotation file for MPII dataset.
+
+    Args:
+        annotation_file (str): Path to ``.h5`` annotation file.
+
+    Returns:
+        tuple: Tuple containing following elements in given order:
+            - center (numpy.ndarray): Shape ``(data_length, 2)``.
+            - scale (numpy.ndarray): Shape ``(data_length,)``.
+            - part (numpy.ndarray): Shape ``(data_length, 16, 2)``.
+            - visible (numpy.ndarray): Shape ``(data_length, 16, 1)``.
+            - normalize (numpy.ndarray): Shape ``(data_length,)``.
+            - data_length (int): Number of samples in the data.
+            - filename (list[str]): Length ``data_length``.
+
+    """
+    data = h5py.File(annotation_file, 'r')
+
+    center = data['center'][()]  # center coordinates (x, y) of a single person detection
+    scale = data['scale'][()]
+    part = data['part'][()]
+    visible = data['visible'][()]
+    normalize = data['normalize'][()]
+
+    data_length = len(center)
+
+    filename = [None] * data_length
+    for i in range(data_length):
+        filename[i] = data['imgname'][i].decode('UTF-8')
+
+    return center, scale, part, visible, normalize, data_length, filename
+
+
+def load_MPII_training_and_validation_annotation_file(training_annotation_file, validation_annotation_file):
+    """
+    Load training and validation annotation files for MPII dataset.
+
+    Args:
+        training_annotation_file (str): Path to training annotation file (`.h5` format).
+        validation_annotation_file (str): Path to validation annotation file (`.h5` format).
+
+    Returns:
+        tuple: Tuple containing following elements in given order:
+            - center (numpy.ndarray): Shape ``(data_length, 2)``.
+            - scale (numpy.ndarray): Shape ``(data_length,)``.
+            - part (numpy.ndarray): Shape ``(data_length, 16, 2)``.
+            - visible (numpy.ndarray): Shape ``(data_length, 16, 1)``.
+            - normalize (numpy.ndarray): Shape ``(data_length,)``.
+            - filename (list[str]): Length ``data_length``.
+            - training_data_length (int): Number of samples in the training annotation file.
+            - validation_data_length (int): Number of samples in the validation annotation file.
+
+    Notes:
+        * ``data_length = training_data_length + validation_data_length``
+
+    """
+    tcenter, tscale, tpart, tvisible, tnormalize, tdata_length, tfilename = load_MPII_annotation_file(training_annotation_file)
+    vcenter, vscale, vpart, vvisible, vnormalize, vdata_length, vfilename = load_MPII_annotation_file(validation_annotation_file)
+
+    center = np.append(tcenter, vcenter, axis=0)
+    scale = np.append(tscale, vscale)
+    part = np.append(tpart, vpart, axis=0)
+    visible = np.append(tvisible, vvisible, axis=0)
+    normalize = np.append(tnormalize, vnormalize)
+    filename = tfilename + vfilename
+
+    training_data_length = tdata_length
+    validation_data_length = vdata_length
+
+    return center, scale, part, visible, normalize, filename, training_data_length, validation_data_length

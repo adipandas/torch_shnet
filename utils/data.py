@@ -5,7 +5,6 @@
 
 import os.path as osp
 import time
-import h5py
 import numpy as np
 from cv2 import warpAffine, cvtColor, COLOR_HSV2RGB, COLOR_RGB2HSV
 from imageio import imread
@@ -31,111 +30,39 @@ class MPIIAnnotationHandler:
         n_train_samples (int): Number of samples in the training annotation file.
         n_validation_samples (int): Number of samples in the validation annotation file.
         image_dir (str): Path to directory containing the MPII dataset images.
-        keypoint_info (dict): Information about the human-pose keypoints. Taken from ``config.yaml`` file of MPII dataset. Information under ```['data']['MPII']['parts']``` in ``config.yaml``.
 
     Args:
         training_annotation_file (str): Path to annotations (a.k.a. labels) file for training set in ``.h5`` format.
         validation_annotation_file (str): Path to annotations (a.k.a. labels) file for validation set in ``.h5`` format.
         image_dir (str): Path to directory containing the MPII dataset images.
-        keypoint_info (dict): Information about the human-pose keypoints. Taken from ``config.yaml`` file of MPII dataset. Information under ```['data']['MPII']['parts']``` in ``config.yaml``.
 
     References:
         * https://dbcollection.readthedocs.io/en/latest/datasets/mpii_pose.html
     """
 
-    def __init__(self, training_annotation_file, validation_annotation_file, image_dir, keypoint_info):
+    def __init__(self, training_annotation_file, validation_annotation_file, image_dir):
         print('loading data...')
         tic = time.time()
 
         self.image_dir = image_dir
-        self.keypoint_info = keypoint_info
 
-        (self.center, self.scale, self.part, self.visible, self.normalize, self.image_filename, self.n_train_samples, self.n_validation_samples) = self.__load_training_and_validation_annotation_file(training_annotation_file, validation_annotation_file)
+        (self.center, self.scale, self.part, self.visible, self.normalize, self.image_filename, self.n_train_samples, self.n_validation_samples) = utils.load_MPII_training_and_validation_annotation_file(training_annotation_file, validation_annotation_file)
 
         print('Done (t={:0.2f}s)'.format(time.time() - tic))
 
-    def __load_annotations(self, annotation_file):
+    def split_data(self):
         """
-
-        Args:
-            annotation_file (str): Path to ``.h5`` annotation file.
+        Split the MPII dataset into training and validation set. Returns index for train and validation imgs.
+        Indices for validation images starts after that of train images so that load_image can tell them apart.
 
         Returns:
-            tuple: Tuple containing following elements in given order:
-                - center (numpy.ndarray): Shape ``(data_length, 2)``.
-                - scale (numpy.ndarray): Shape ``(data_length,)``.
-                - part (numpy.ndarray): Shape ``(data_length, 16, 2)``.
-                - visible (numpy.ndarray): Shape ``(data_length, 16, 1)``.
-                - normalize (numpy.ndarray): Shape ``(data_length,)``.
-                - data_length (int): Number of samples in the data.
-                - filename (list[str]): Length ``data_length``.
-
+            tuple[numpy.ndarray, numpy.ndarray]: Tuple containing:
+                - numpy.ndarray: training data indices with shape (N_train,)
+                - numpy.ndarray: validation data indices with shape (N_validation,)
         """
-        data = h5py.File(annotation_file, 'r')
-
-        center = data['center'][()]  # center coordinates (x, y) of a single person detection
-        scale = data['scale'][()]
-        part = data['part'][()]
-        visible = data['visible'][()]
-        normalize = data['normalize'][()]
-
-        data_length = len(center)
-
-        filename = [None] * data_length
-        for i in range(data_length):
-            filename[i] = data['imgname'][i].decode('UTF-8')
-
-        return center, scale, part, visible, normalize, data_length, filename
-
-    def __load_training_and_validation_annotation_file(self, training_annotation_file, validation_annotation_file):
-        """
-        Load training and validation annotation files.
-
-        Args:
-            training_annotation_file (str): Path to training annotation file (`.h5` format).
-            validation_annotation_file (str): Path to validation annotation file (`.h5` format).
-
-        Returns:
-            tuple: Tuple containing following elements in given order:
-                - center (numpy.ndarray): Shape ``(data_length, 2)``.
-                - scale (numpy.ndarray): Shape ``(data_length,)``.
-                - part (numpy.ndarray): Shape ``(data_length, 16, 2)``.
-                - visible (numpy.ndarray): Shape ``(data_length, 16, 1)``.
-                - normalize (numpy.ndarray): Shape ``(data_length,)``.
-                - filename (list[str]): Length ``data_length``.
-                - training_data_length (int): Number of samples in the training annotation file.
-                - validation_data_length (int): Number of samples in the validation annotation file.
-
-        Notes:
-            * ``data_length = training_data_length + validation_data_length``
-
-        """
-        tcenter, tscale, tpart, tvisible, tnormalize, tdata_length, tfilename = self.__load_annotations(training_annotation_file)
-        vcenter, vscale, vpart, vvisible, vnormalize, vdata_length, vfilename = self.__load_annotations(validation_annotation_file)
-
-        center = np.append(tcenter, vcenter, axis=0)
-        scale = np.append(tscale, vscale)
-        part = np.append(tpart, vpart, axis=0)
-        visible = np.append(tvisible, vvisible, axis=0)
-        normalize = np.append(tnormalize, vnormalize)
-        filename = tfilename + vfilename
-
-        training_data_length = tdata_length
-        validation_data_length = vdata_length
-
-        return center, scale, part, visible, normalize, filename, training_data_length, validation_data_length
-
-    def __get_image_file_path(self, image_file_name):
-        """
-        Get image file path from image file name.
-
-        Args:
-            image_file_name (str): Image file name.
-
-        Returns:
-            str: complete path to the given image file.
-        """
-        return osp.join(self.image_dir, image_file_name)
+        train = [i for i in range(self.n_train_samples)]
+        valid = [i + self.n_train_samples for i in range(self.n_validation_samples)]
+        return np.array(train), np.array(valid)
 
     def get_annotation(self, idx, full_path=True):
         """
@@ -159,25 +86,11 @@ class MPIIAnnotationHandler:
         """
         image_filename = self.image_filename[idx]
         if full_path:
-            image_filename = self.__get_image_file_path(image_filename)
+            image_filename = osp.join(self.image_dir, image_filename)
 
         keypoints = np.insert(self.part[idx], 2, self.visible[idx], axis=1)[np.newaxis, :, :]
 
         return image_filename, keypoints, self.visible[idx], self.center[idx], self.scale[idx], self.normalize[idx]
-
-    def split_data(self):
-        """
-        Split the MPII dataset into training and validation set. Returns index for train and validation imgs.
-        Indices for validation images starts after that of train images so that load_image can tell them apart.
-
-        Returns:
-            tuple[numpy.ndarray, numpy.ndarray]: Tuple containing:
-                - numpy.ndarray: training data indices with shape (N_train,)
-                - numpy.ndarray: validation data indices with shape (N_validation,)
-        """
-        train = [i for i in range(self.n_train_samples)]
-        valid = [i + self.n_train_samples for i in range(self.n_validation_samples)]
-        return np.array(train), np.array(valid)
 
 
 class GenerateHeatmap:
@@ -247,6 +160,7 @@ class MPIIDataset(Dataset):
     Args:
         indices (numpy.ndarray): Indices of the dataset.
         mpii_annotation_handle (MPIIAnnotationHandler): Object to handle MPII dataset annotations.
+        horizontally_flipped_keypoint_ids (list or tuple): List of IDs of the human-pose keypoints flipped horizontally in the image. Taken from ``config.yaml`` file of MPII dataset. Information under ```['data']['MPII']['parts']['flipped_ids']``` in ``config.yaml``.
         input_resolution (int): Desired Input resolution of image samples to pass in neural network. Default is ``256`` pixel.
         output_resolution (int): Desired Output resolution of heatmaps to form ground truth of neural network. Default is ``64``pixel.
         num_parts (int): Number of parts on the body to recognize. For MPII dataset, this value is ``16``.
@@ -262,6 +176,7 @@ class MPIIDataset(Dataset):
     def __init__(self,
                  indices,
                  mpii_annotation_handle,
+                 horizontally_flipped_keypoint_ids,
                  transform=ToTensor(),
                  input_resolution=256,
                  output_resolution=64,
@@ -282,7 +197,6 @@ class MPIIDataset(Dataset):
         assert 0. < image_horizontal_flip_probability < 1.0
 
         self.transform = transform
-
         self.input_resolution = input_resolution
         self.output_resolution = output_resolution
         self.indices = indices
@@ -296,19 +210,12 @@ class MPIIDataset(Dataset):
         self.saturation_min_delta = saturation_min_delta
         self.brightness_max_delta = brightness_max_delta
         self.contrast_min_delta = contrast_min_delta
+        self.horizontally_flipped_keypoint_ids = horizontally_flipped_keypoint_ids
 
         self.generate_heatmap = GenerateHeatmap(self.output_resolution, num_parts)
 
     def __len__(self):
         return len(self.indices)
-
-    def __getitem__(self, idx):
-        image, heatmaps = self.__load_data__(self.indices[idx % len(self.indices)])
-
-        if self.transform:
-            image = self.transform(image)
-        heatmaps = tensor(heatmaps)
-        return image, heatmaps
 
     def __load_data__(self, idx):
         """
@@ -354,7 +261,7 @@ class MPIIDataset(Dataset):
 
         heatmaps = self.generate_heatmap(output_keypoints)      # generate heatmaps on output resolution
 
-        return image.astype(np.float32), heatmaps.astype(np.float32)
+        return image.astype(np.float32), heatmaps.astype(np.float32), input_keypoints, output_keypoints
 
     def __transform_original_keypoints_to_input_resolution(self, original_keypoints, center, scale):
         """
@@ -393,7 +300,7 @@ class MPIIDataset(Dataset):
                 - output_keypoints (numpy.ndarray): Flipped location of output heatmap keypoints with shape ``(1, 16, 3)``.
 
         """
-        flipped_keypoint_ids = self.mpii_annotation_handle.keypoint_info['flipped_ids']
+        flipped_keypoint_ids = self.horizontally_flipped_keypoint_ids
 
         image = image[:, ::-1]          # horizontal flip image, WIDTH (a.k.a. X-axis) coordinates of the image are flipped.
 
@@ -444,11 +351,8 @@ class MPIIDataset(Dataset):
         Returns:
             tuple[float, float]: Tuple of length `2` containing rotation angle (in degrees) and scaling factor for augmentation.
         """
-        # random rotation angle
-        augment_rotation_angle = (np.random.random() * 2 - 1) * self.max_rotation_angle
-
-        # random scale factor
-        augment_scale_factor = np.random.random() * (self.image_scaling_factor['max'] - self.image_scaling_factor['min']) + self.image_scaling_factor['min']
+        augment_rotation_angle = (np.random.random() * 2 - 1) * self.max_rotation_angle   # random rotation angle
+        augment_scale_factor = np.random.random() * (self.image_scaling_factor['max'] - self.image_scaling_factor['min']) + self.image_scaling_factor['min']   # random scale factor
         return augment_rotation_angle, augment_scale_factor
 
     def __random_color_jitter(self, data):
@@ -486,6 +390,14 @@ class MPIIDataset(Dataset):
         data = (data - mean) * (np.random.random() + self.contrast_min_delta) + mean
         data = np.minimum(np.maximum(data, 0), 1)
         return data
+
+    def __getitem__(self, idx):
+        image, heatmaps, input_keypoints, output_keypoints = self.__load_data__(self.indices[idx % len(self.indices)])
+
+        if self.transform:
+            image = self.transform(image)
+        heatmaps = tensor(heatmaps)
+        return image, heatmaps, input_keypoints, output_keypoints
 
 
 # def init(config):

@@ -1,30 +1,40 @@
 import os
-from math import ceil
+import os.path as osp
 import numpy as np
-import tempfile
 
 import torch
-import torch.nn as nn
 import torch.optim as optim
 import torch.multiprocessing as mp
 import torch.utils.data
 import torch.distributed as dist
-from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.nn.parallel import DistributedDataParallel
 
 from models import PoseNet, HeatMapLossBatch
 from utils.data import MPIIAnnotationHandler
 from utils.data import MPIIDataset
-from utils.read_config import ConfigYamlParserMPII
+from utils.read_config import yaml_to_object, Configurations
 
 
-def setup(rank, world_size, master_addr='127.0.0.1', master_port='12355'):
-    """Initialize the distributed environment."""
+def setup(rank, world_size, master_addr='127.0.0.1', master_port=12355):
+    """
+    Initialize the distributed environment.
+
+    Args:
+        rank (int): Rank of current process
+        world_size (int): Total number of processes
+        master_addr (str): IP address of master.
+        master_port (int or str): Port number of master
+
+    """
     os.environ['MASTER_ADDR'] = str(master_addr)
-    os.environ['MASTER_PORT'] = str(master_port)
+    os.environ['MASTER_PORT'] = str(int(master_port))
     dist.init_process_group("gloo", rank=rank, world_size=world_size)   # initialize the process group
 
 
 def cleanup():
+    """
+    Clean the distributed compute pipeline.
+    """
     dist.destroy_process_group()
 
 
@@ -78,7 +88,7 @@ class DataPartitioner:
 
         Args:
             partition_id (int): Index of the data partition to use.
-            config (ConfigYamlParserMPII): Configuration file object.
+            config (Configurations): Configuration file object.
             mpii_annotation_handle (MPIIAnnotationHandler): MPII annotation data handler object
 
         Returns:
@@ -87,19 +97,18 @@ class DataPartitioner:
                 - validation_data_partition (Partition):
         """
 
-        _data_aug = config.NN_TRAINING_PARAMS['data_augmentation']
-        image_scale_factor_range = (float(_data_aug['image_scale_factor']['min']), float(_data_aug['image_scale_factor']['max']))
-        input_resolution = int(config.NN_TRAINING_PARAMS['input_resolution'])
-        output_resolution = int(config.NN_TRAINING_PARAMS['output_resolution'])
-        num_parts = int(config.PARTS['max_count'])
-        reference_image_size = int(config.REFERENCE_IMAGE_SIZE)
-        max_rotation_angle = float(_data_aug['rotation_angle_max'])
-        image_color_jitter_probability = float(_data_aug['image_color_jitter_probability'])
-        image_horizontal_flip_probability = float(_data_aug['image_horizontal_flip_probability'])
-        hue_max_delta = float(_data_aug['hue_max_delta'])
-        saturation_min_delta = float(_data_aug['saturation_min_delta'])
-        brightness_max_delta = float(_data_aug['brightness_max_delta'])
-        contrast_min_delta = float(_data_aug['contrast_min_delta'])
+        image_scale_factor_range = (float(config.neural_network.train.data_augmentation.image_scale_factor.min), float(config.neural_network.train.data_augmentation.image_scale_factor.max))
+        input_resolution = int(config.neural_network.train.input_resolution)
+        output_resolution = int(config.neural_network.train.output_resolution)
+        num_parts = int(config.data.MPII.parts.max_count)
+        reference_image_size = int(config.data.MPII.reference_image_size)
+        max_rotation_angle = float(config.neural_network.train.data_augmentation.rotation_angle_max)
+        image_color_jitter_probability = float(config.neural_network.train.data_augmentation.image_color_jitter_probability)
+        image_horizontal_flip_probability = float(config.neural_network.train.data_augmentation.image_horizontal_flip_probability)
+        hue_max_delta = float(config.neural_network.train.data_augmentation.hue_max_delta)
+        saturation_min_delta = float(config.neural_network.train.data_augmentation.saturation_min_delta)
+        brightness_max_delta = float(config.neural_network.train.data_augmentation.brightness_max_delta)
+        contrast_min_delta = float(config.neural_network.train.data_augmentation.contrast_min_delta)
 
         training_data_partition = MPIIDataset(
             indices=self.training_partitions[partition_id],
@@ -143,7 +152,7 @@ def partition_dataset(rank, world_size, config):
     Args:
         rank (int): Rank of the current process
         world_size (int): Total number of porcesses.
-        config (ConfigYamlParserMPII): Configurations.
+        config (Configurations): Configurations.
 
     Returns:
         tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader, int]: Tuple containing following elemenets in given order:
@@ -152,16 +161,21 @@ def partition_dataset(rank, world_size, config):
             - batch_size (int):
     """
 
-    seed = int(config.NN_TRAINING_PARAMS['random_seed'])
+    seed = int(config.neural_network.train.random_seed)
     # world_size = min(config.NN_TRAINING_PARAMS['DistributedDataParallel']['world_size'], dist.get_world_size())
 
-    batch_size_total = int(config.NN_TRAINING_PARAMS['batch_size'])
+    batch_size_total = int(config.neural_network.train.batch_size)
+
+    data_path = osp.join(config.root_dir, config.data.MPII.path.base)
+    training_annotation_file = osp.join(data_path, config.data.MPII.path.annotations.training)
+    validation_annotation_file = osp.join(data_path, config.data.MPII.path.annotations.validation)
+    image_dir = osp.join(data_path, config.data.MPII.path.images)
 
     mpii_annotation_handle = MPIIAnnotationHandler(
-        training_annotation_file=config.TRAINING_ANNOTATION_FILE,
-        validation_annotation_file=config.VALIDATION_ANNOTATION_FILE,
-        image_dir=config.IMAGE_DIR,
-        keypoint_info=config.PARTS
+        training_annotation_file=training_annotation_file,
+        validation_annotation_file=validation_annotation_file,
+        image_dir=image_dir,
+        horizontally_flipped_keypoint_ids=config.data.MPII.parts.flipped_ids
     )
 
     training_data_indices, validation_data_indices = mpii_annotation_handle.split_data()
@@ -183,9 +197,18 @@ def partition_dataset(rank, world_size, config):
     return training_dataloader, validation_dataloader, batch_size
 
 
-def average_gradients(model):
-    """ Gradient averaging. """
-    size = float(dist.get_world_size())
+def average_gradients(model, world_size):
+    """
+    Gradient averaging.
+
+    Args:
+        model (DistributedDataParallel):
+        world_size (int): World size or total number of processes.
+
+    Returns:
+
+    """
+    size = float(world_size)
     for param in model.parameters():
         dist.all_reduce(param.grad.data, op=dist.reduce_op.SUM, group=0)
         param.grad.data /= size
@@ -196,26 +219,26 @@ def run(rank, world_size, config):
     Distributed Synchronous SGD Example
 
     Args:
-        rank:
-        world_size ():
+        rank (int): Rank of the current process.
+        world_size (int): Total number of processes (a.k.a world size) in use.
         config (ConfigYamlParserMPII):
 
     Returns:
 
     """
-    torch.manual_seed(int(config.NN_TRAINING_PARAMS['random_seed']))
+    torch.manual_seed(int(config.neural_network.train.random_seed))
     training_dataloader, validation_dataloader, batch_size = partition_dataset(rank, world_size, config)
 
-    total_epochs = int(config.NN_TRAINING_PARAMS['epoch'])
-    learning_rate = float(config.NN_TRAINING_PARAMS['learning_rate'])
-    n_hourglass = int(config.POSENET_INPUT_PARAMS['n_hourglass'])
-    in_channels = int(config.POSENET_INPUT_PARAMS['in_channels'])
-    out_channels = int(config.POSENET_INPUT_PARAMS['out_channels'])
-    channel_increase = int(config.POSENET_INPUT_PARAMS['channel_increase'])
+    total_epochs = int(config.neural_network.train.epochs)
+    learning_rate = float(config.neural_network.train.learning_rate)
+    n_hourglass = int(config.neural_network.PoseNet.n_hourglass)
+    in_channels = int(config.neural_network.PoseNet.in_channels)
+    out_channels = int(config.neural_network.PoseNet.out_channels)
+    channel_increase = int(config.neural_network.PoseNet.channel_increase)
 
     model = PoseNet(n_hourglass=n_hourglass, in_channels=in_channels, out_channels=out_channels, channel_increase=channel_increase).to(rank)
-    model = DDP(model, device_ids=[rank])
-    optimizer = optim.Adam(filter(lambda p: p.requires_grad, ddp_model.parameters()), lr=learning_rate)
+    model = DistributedDataParallel(model, device_ids=[rank])
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate)
     loss_fn = HeatMapLossBatch()
 
     total_step = len(training_dataloader)
@@ -232,61 +255,14 @@ def run(rank, world_size, config):
             loss = loss_fn(output, heatmaps)
             epoch_loss += loss.data[0]
             loss.backward()
-            average_gradients(model)
+            average_gradients(model, world_size)
             optimizer.step()
         print('Rank ', dist.get_rank(), ', epoch ', epoch, ': ', epoch_loss / num_batches)
 
-        if rank == 0 and config.SAVE_CHECKPOINT:
-            torch.save(model.state_dict(), config.CHECKPOINT_PATH)  # saving it in one process is sufficient.
+        if rank == 0 and epoch > 0 and config.neural_network.train.checkpoint.save and epoch % config.neural_network.train.checkpoint.save_every == 0:
+            torch.save(model.state_dict(), config.neural_network.train.checkpoint.path)  # saving it in one process is sufficient.
 
-
-def demo_checkpoint(rank, world_size, config):
-    """
-
-    Args:
-        rank:
-        world_size ():
-        config (ConfigYamlParserMPII):
-
-    Returns:
-
-    """
-    print(f"Running DDP checkpoint example on rank {rank}.")
-    setup(rank, world_size)
-
-    model = PoseNet(
-        n_hourglass=config.POSENET_INPUT_PARAMS['n_hourglass'],
-        in_channels=config.POSENET_INPUT_PARAMS['in_channels'],
-        out_channels=config.POSENET_INPUT_PARAMS['out_channels'],
-        channel_increase=config.POSENET_INPUT_PARAMS['channel_increase']
-    ).to(rank)
-    ddp_model = DDP(model, device_ids=[rank])
-
-    loss_fn = HeatMapLossBatch()
-    optimizer = optim.SGD(ddp_model.parameters(), lr=0.001)
-
-    CHECKPOINT_PATH = tempfile.gettempdir() + "/model.checkpoint"
-    if rank == 0:
-        torch.save(ddp_model.state_dict(), CHECKPOINT_PATH)  # saving it in one process is sufficient.
-
-    dist.barrier()  # Use a barrier() to make sure that process 1 loads the model after process 0 saves it.
-
-    map_location = {'cuda:%d' % 0: 'cuda:%d' % rank}  # configure map_location properly
-    ddp_model.load_state_dict(torch.load(CHECKPOINT_PATH, map_location=map_location))
-
-    optimizer.zero_grad()
-    outputs = ddp_model(torch.randn(20, 10))
-    labels = torch.randn(20, 5).to(rank)
-    loss_fn = HeatMapLossBatch()
-    loss_fn(outputs, labels).backward()
-    optimizer.step()
-
-    # Not necessary to use a dist.barrier() to guard the file deletion below
-    # as the AllReduce ops in the backward pass of DDP already served as
-    # a synchronization.
-
-    if rank == 0:
-        os.remove(CHECKPOINT_PATH)
+    dist.barrier()
 
     cleanup()
 
@@ -295,10 +271,11 @@ def run_demo(demo_fn, world_size):
     mp.spawn(demo_fn, args=(world_size,), nprocs=world_size, join=True)
 
 
-# if __name__ == "__main__":
-#     n_gpus = torch.cuda.device_count()
-#     if n_gpus < 8:
-#         print(f"Requires at least 8 GPUs to run, but got {n_gpus}.")
-#     else:
-#         run_demo(demo_basic, 8)
-#         run_demo(demo_checkpoint, 8)
+def load_configuration(configuration_file_path="./config.yaml"):
+    configuration = yaml_to_object(configuration_file_path)
+    setattr(configuration, "root_dir", osp.dirname(osp.abspath(__file__)))
+    return configuration
+
+
+if __name__ == "__main__":
+    config = load_configuration(configuration_file_path="./config.yaml")

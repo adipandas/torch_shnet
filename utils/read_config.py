@@ -1,66 +1,63 @@
-import os.path as osp
-import yaml
+from yaml import load as yaml_load, FullLoader as yaml_FullLoader
 
 
-class ConfigYamlParserMPII:
+class Configurations(object):
     """
-    Reads and Parses the ``config.yaml`` file for the project.
+    Simple class to freeze the attributes once they are created in the object.
+    """
+    def __setattr__(self, key, value):
+        if key not in self.__dict__:
+            object.__setattr__(self, key, value)
+        else:
+            raise ValueError(f"Cannot set `{key}` twice. Attribute `{key}` value is already set in {self} as `{self.__dict__[key]}`.")
+
+
+def dict_to_object(_dict):
+    """
+    Input dictionary is converted to an object with all the dictionary keys as its attribute.
 
     Args:
-        path (str): ``config.yaml`` file path.
+        _dict (dict): Dictionary.
+
+    Returns:
+        Configurations: Object with all the key value pairs in the input dictionary as the attributes and their values.
     """
-    def __init__(self, path="./config.yaml"):
 
-        self.config_file_path = osp.abspath(path)
-        assert osp.exists(self.config_file_path), f"File not found '{self.config_file_path}'."
+    __obj = Configurations()
 
-        with open(self.config_file_path) as f:
-            self.config = yaml.load(f, Loader=yaml.FullLoader)
+    for k, v in _dict.items():
+        if type(v) is dict:
+            v = dict_to_object(v)
+        if not hasattr(__obj, k):
+            setattr(__obj, k, v)
 
-        self._set_dataset_directories()
-        self._set_dataset_parameters()
-        self._set_neural_network_parameters()
+    return __obj
 
-    def _set_dataset_directories(self):
-        _paths = self.config['data']['MPII']['paths']
 
-        self.BASE_DIR = osp.join(osp.dirname(self.config_file_path), _paths['base'])
-        self._exists(self.BASE_DIR)
+def yaml_to_object(yaml_file):
+    """
+    Read a yaml file and convert it to a python object.
 
-        self.IMAGE_DIR = osp.join(self.BASE_DIR, _paths['images'])
-        self._exists(self.IMAGE_DIR)
+    Args:
+        yaml_file (str): Path to ``.yaml`` file.
 
-        self.TRAINING_ANNOTATION_FILE = osp.join(self.BASE_DIR, _paths['annotations']['training'])
-        self._exists(self.TRAINING_ANNOTATION_FILE)
-
-        self.VALIDATION_ANNOTATION_FILE = osp.join(self.BASE_DIR, _paths['annotations']['validation'])
-        self._exists(self.VALIDATION_ANNOTATION_FILE)
-
-        self.TESTING_ANNOTATION_FILE = osp.join(self.BASE_DIR, _paths['annotations']['testing'])
-        self._exists(self.TESTING_ANNOTATION_FILE)
-
-    def _set_dataset_parameters(self):
-        self.REFERENCE_IMAGE_SIZE = self.config['data']['MPII']['reference_image_size']
-        self.PARTS = self.config['data']['MPII']['parts']
-        self.PART_PAIRS = self.config['data']['MPII']['part_pairs']
-
-    def _set_neural_network_parameters(self):
-        _nn = self.config['neural_network']
-        self.POSENET_INPUT_PARAMS = _nn['PoseNet']
-        self.NN_TRAINING_PARAMS = _nn['train']
-        self.NN_INFERENCE_PARAMS = _nn['inference']
-
-    def _exists(self, path):
-        """
-        To check if the given path is valid
-
-        Args:
-            path (str): File or directory path.
-        """
-        assert osp.exists(path), f"'{path}' not found. Check '{self.config_file_path}'."
+    Returns:
+        Configurations: Object with all the keys in the given ``.yaml`` file as its attributes.
+    """
+    with open(yaml_file) as f:
+        config = yaml_load(f, Loader=yaml_FullLoader)
+    return dict_to_object(config)
 
 
 if __name__ == "__main__":
-    c = ConfigYamlParserMPII(path="./../config.yaml")
-    print(c.config)
+    config = yaml_to_object("./../config.yaml")
 
+    print(config.data.MPII.path.base)
+    try:
+        config.data.MPII.path.base = "MyPath"
+    except ValueError as e:
+        print(e)
+        print(f"Cannot change frozen object {config}")
+        print("Test successful!")
+
+    print("Done.")

@@ -1,6 +1,6 @@
 data:
   MPII:                                         # refer http://human-pose.mpi-inf.mpg.de/#download
-    paths:
+    path:
       base: data/MPII                           # dir path; can be absolute path
       images: images                            # dir path; must be relative to base path
       annotations:
@@ -35,7 +35,7 @@ neural_network:
     epochs: 200
     train_iterations: 1000                     # training iterations
     valid_iterations: 10                       # validation iterations
-    learning_rate: 1e-3
+    learning_rate: 0.001
     max_num_people: 1
     data_augmentation:
       rotation_angle_max: 30                   # max. rotation angle in degrees
@@ -52,12 +52,14 @@ neural_network:
       use: True                               # if ``True``, use DistributedDataParallel from pytorch.
       backend: gloo                           # for more options refer https://pytorch.org/docs/stable/distributed.html#torch.distributed.init_process_group
       MASTER_ADDR: 127.0.0.1                  # ip address to use
-      MASTER_PORT: 12355                      # port number to use
+      MASTER_PORT: 12355                    # port number to use
       world_size: 1                           # default 1. Change it depending on your requirements
     checkpoint:
       save: True                              # If `True`, save checkpoints while training.
-      every: 1                                # Save checkpoints every ``x`` epochs
-      path: checkpoints/posenet.checkpoint     # PATH to save checkpoints with respect to the base directory `./torch_shnet`.
+      save_every: 1                           # Save checkpoints every ``x`` epochs
+      path: checkpoints/posenet.checkpoint    # PATH to save checkpoints with respect to the base directory `./torch_shnet`.
+    logs:
+      path: logs/
 
   inference:
     keys: [imgs]
