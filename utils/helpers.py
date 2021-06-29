@@ -106,7 +106,7 @@ def kpt_affine(kpt, mat):
     new_kpt = np.dot(kpt, mat.T)
 
     for i in range(kpt.shape[0]):
-        if kpt[i, 0] == 0:
+        if kpt[i, 0] == 0 or kpt[i, 1] == 0:
             new_kpt[i, 0] = 0
             new_kpt[i, 1] = 0
 
@@ -527,6 +527,6 @@ def transform_MPII_image_keypoints(image, kp, center, scale, resolution):
     image = crop(image, center, scale, resolution)
     new_kp = kp.copy()
     for i in range(new_kp.shape[1]):
-        if kp[0, i, 0] > 0:
+        if kp[0, i, 0] > 0 and kp[0, i, 1] > 0:
             new_kp[0, i, :2] = transform(kp[0, i, :2], center, scale, resolution)
     return image, new_kp

@@ -124,7 +124,6 @@ class MPIIDataset(Dataset):
         # set keypoints to 0 when were not visible initially (so heatmap all 0s)
         for i in range(np.shape(input_keypoints)[1]):
             if o_kp[0, i, 0] == 0 or o_kp[0, i, 1] == 0:
-                print("I am hear!!")
                 input_keypoints[0, i, 0:2] *= 0
                 # input_keypoints[0, i, 1] = 0
                 output_keypoints[0, i, 0:2] *= 0
