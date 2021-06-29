@@ -10,8 +10,8 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
 
 from models import PoseNet, HeatMapLossBatch
-from utils.data import MPIIAnnotationHandler
-from utils.data import MPIIDataset
+from utils.dataset import MPIIAnnotationHandler
+from utils.dataset import MPIIDataset
 from utils.read_config import yaml_to_object, Configurations
 
 

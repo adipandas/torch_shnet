@@ -111,7 +111,7 @@ def kpt_affine(kpt, mat):
 
 def get_transform(center, scale, resolution, rotation=0, reference_image_size=200):
     """
-    Generate transformation matrix.
+    Generate transformation matrix to convert a homogeneous ``(x, y, 1)`` pixel cooridinates of an image [with shape ``(H_in, W_in, C)=(scale*reference_image_size, scale*reference_image_size, C)`` and given ``center``] to the homogeneous ``(x_new, y_new, 1)`` coordinates of a new image [with shape ``(H_out, W_out, C)=(resolution[0], resolution[1], C)`` and center as ``(resolution[0]/2, resolution[1]/2)``].
 
     Args:
         center (numpy.ndarray or tuple or list): Array of shape (2,) containing x, y coordinates of the center.
@@ -124,17 +124,17 @@ def get_transform(center, scale, resolution, rotation=0, reference_image_size=20
         numpy.ndarray: Transformation matrix of shape (3, 3).
     """
 
-    h = reference_image_size * scale                        # current resolution
+    S = reference_image_size * scale                        # current resolution (a.k.a image_dim)
     xc, yc = float(center[0]), float(center[1])             # center as per current resolution
 
     X, Y = float(resolution[1]), float(resolution[0])       # desired resolution
     xc_des, yc_des = X*0.5, Y*0.5                           # desired center
 
     t = np.zeros((3, 3))
-    t[0, 0] = X/h
-    t[1, 1] = Y/h
-    t[0, 2] = - xc * X / h + xc_des
-    t[1, 2] = - yc * Y / h + yc_des
+    t[0, 0] = X/S
+    t[1, 1] = Y/S
+    t[0, 2] = - xc * X / S + xc_des
+    t[1, 2] = - yc * Y / S + yc_des
     t[2, 2] = 1
 
     if not rotation == 0:
@@ -168,7 +168,7 @@ def transform(pt, center, scale, resolution, invert=False, rotation=0):
     Transform pixel location to different reference
 
     Args:
-        pt (numpy.ndarray or tuple or list): Point denoting pixel location of shape ``(2,)`` as ``(x, y)``.
+        pt (numpy.ndarray or tuple or list): Point ``(x, y)`` denoting pixel location of shape ``(2,)``.
         center (numpy.ndarray or tuple or list): Array of shape ``(2,)`` containing ``(x, y)`` coordinates of the center.
         scale (float): person scale w.r.t. ``200 px`` height.
         resolution (tuple or list or numpy.ndarray): Desired resoultion as tuple ``(Height, Width)`` of length `2`.
@@ -176,7 +176,7 @@ def transform(pt, center, scale, resolution, invert=False, rotation=0):
         rotation (float): Angle of rotation in ``degrees``. Default is ``0``.
 
     Returns:
-        numpy.ndarray: Transformed pixel locations as `int` array of shape (2,).
+        numpy.ndarray[int]: Transformed pixel location coordinates ``(x, y)`` as array of shape (2,) and type ``int``.
     """
     t = get_transform(center, scale, resolution, rotation=rotation)
     if invert:
@@ -213,11 +213,12 @@ def crop(img, center, scale, resolution, rotation=0):
     new_shape = [br[1] - ul[1], br[0] - ul[0]]
     if len(img.shape) > 2:
         new_shape += [img.shape[2]]
+
     new_img = np.zeros(new_shape)
 
-    # Range to fill new array
-    new_x = max(0, -ul[0]), min(br[0], len(img[0])) - ul[0]
-    new_y = max(0, -ul[1]), min(br[1], len(img)) - ul[1]
+    # Range to fill new image array
+    new_x = max(0, -ul[0]), min(br[0], img.shape[1]) - ul[0]
+    new_y = max(0, -ul[1]), min(br[1], img.shape[0]) - ul[1]
 
     # Range to sample from original image
     old_x = max(0, ul[0]), min(len(img[0]), br[0])
@@ -467,3 +468,59 @@ def load_MPII_training_and_validation_annotation_file(training_annotation_file, 
     validation_data_length = vdata_length
 
     return center, scale, part, visible, normalize, filename, training_data_length, validation_data_length
+
+
+def image_horizontal_flip(image):
+    """
+    Horizontally flip the image.
+
+    Args:
+        image (numpy.ndarray): Shape (H, W, C).
+
+    Returns:
+        numpy.ndarray: Horizontally flipped image of Shape (H, W, C).
+    """
+    return image[:, ::-1]
+
+def keypoints_horizontal_flip(kps, width, flipped_kp_ids):
+    """
+    Horizontally flip the keypoints in the image.
+
+    Args:
+        kps (numpy.ndarray): Keypont pixel coordinates with shape (1, 16, 3) with each row of ``0``th element containing ``(x, y, visibility_flag)`` for corresponding keypoints.
+        width (int): Width of the image.
+        flipped_kp_ids (list or tuple): Container of flipped ids of keypoints. Refer ``config.yaml`` (attribute flipped_ids) for more details.
+
+    Returns:
+        numpy.ndarray: Flipped keypont pixel coordinates with shape (1, 16, 3)
+
+    """
+    kps = kps[:, flipped_kp_ids]
+    kps[:, :, 0] = width - kps[:, :, 0]
+    return kps
+
+
+def transform_MPII_image_keypoints(image, kp, center, scale, resolution):
+    """
+
+    Args:
+        image (numpy.ndarray): Image of shape ``(H, W, C)``.
+        kp (numpy.ndarray): Keypoints in the image of shape ``(1, 16, 3)``.
+        center (numpy.ndarray): Center ``(x, y)`` coordinates of shape ``(2,)``.
+        scale (float): Scaling factor.
+        resolution (tuple): Tuple containing ``(H_desired, W_desired)``. Tuple of length ``2``.
+
+    Returns:
+        tuple[numpy.ndarray, numpy.ndarray]: Tuple containing:
+            - image (numpy.ndarray): output image of shape ``(H_desired, W_desired, C)``.
+            - new_kp (numpy.ndarray): Transformed keypoints of shape ``(1, 16, 3)``.
+
+    Notes:
+        * Each row in first element keypoints ``kp``, i.e., ``kp[0, i, :]`` contains ``(x, y, visibility_flag)`` of a keypoint.
+    """
+    image = crop(image, center, scale, resolution)
+    new_kp = kp.copy()
+    for i in range(np.shape(new_kp)[1]):
+        if new_kp[0, i, 0] > 0:
+            new_kp[0, i, :2] = transform(kp[0, i, :2], center, scale, resolution)
+    return image, new_kp
