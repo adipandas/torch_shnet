@@ -4,6 +4,7 @@
 """
 
 import numpy as np
+import torch
 from cv2 import warpAffine
 from imageio import imread
 from torch import tensor
@@ -73,7 +74,6 @@ class MPIIDataset(Dataset):
         self.contrast_min_delta = contrast_min_delta
 
         self.transforms = transformCompose([
-            ToTensor(),
             ColorJitter(brightness=brightness_max_delta, contrast=contrast_min_delta, saturation=saturation_min_delta, hue=hue_max_delta)
         ])
 
@@ -83,47 +83,59 @@ class MPIIDataset(Dataset):
         return len(self.indices)
 
     def __getitem__(self, idx):
-        # image, heatmaps, input_keypoints, output_keypoints = self.__load_data__(self.indices[idx % len(self.indices)])
+        idx = self.indices[idx % len(self.indices)]
         in_res = (self.input_resolution, self.input_resolution)             # input height, width
         out_res = (self.output_resolution, self.output_resolution)          # output height, width
-        image_path, original_keypoints, _, c, s, _ = self.mpii_annotation_handle.get_annotation(idx)
-        image = imread(image_path)                                          # load image with shape ``(H, W, C)``.
+        s_min, s_max = self.image_scaling_factor['min'], self.image_scaling_factor['max']
+
+        imgpath, kp, c, s = self.mpii_annotation_handle[idx]
+        image = imread(imgpath)                                             # load image with shape ``(H, W, C)``.
+        o_kp = kp.copy()                                                    # copy of original keypoint coordinates
 
         # transform image and original keypoints to desired input resolution and scale
-        image, input_keypoints = utils.transform_MPII_image_keypoints(image, original_keypoints, c, s, in_res)
+        image, input_keypoints = utils.transform_MPII_image_keypoints(image, kp, c, s, in_res)
         height, width = image.shape[0:2]                            # height and width of input image
         center = np.array((width / 2, height / 2))                  # center of input image
         scale = max(height, width) / self.reference_image_size      # scale input image.
 
         # rotation and scaling augmentation of input image
-        scale *= (np.random.random() * (self.image_scaling_factor['max'] - self.image_scaling_factor['min']) + self.image_scaling_factor['min'])  # scale factor augmentation
-        augment_rotation_angle = (np.random.random() * 2 - 1) * self.max_rotation_angle  # random rotation angle - augmentation
+        scale *= (np.random.random() * (s_max - s_min) + s_min)     # scale factor augmentation
+        augment_rotation_angle = (np.random.random() * 2. - 1.) * self.max_rotation_angle  # random rotation angle - augmentation
+
+        # augmented transformation matrix for input and output data
         input_transformation_matrix = utils.get_transform(center, scale, in_res, augment_rotation_angle, self.reference_image_size)[:2]
-        image = warpAffine(image, input_transformation_matrix, in_res).astype(np.float32) / 255.  # image (data) augmentation
+        output_transformation_matrix = utils.get_transform(center, scale, out_res, augment_rotation_angle, self.reference_image_size)[:2]
+
+        # augment input image
+        image = warpAffine(image, input_transformation_matrix, in_res).astype(np.float32) / 255.    # image (data) augmentation
 
         # transform the output keypoints to be included in heatmaps as per the augmentation
-        output_keypoint_transformation_matrix = utils.get_transform(center, scale, out_res, augment_rotation_angle, self.reference_image_size)[:2]
         output_keypoints = input_keypoints.copy()
-        output_keypoints[:, :, 0:2] = utils.kpt_affine(input_keypoints[:, :, 0:2], output_keypoint_transformation_matrix)
+        output_keypoints[:, :, 0:2] = utils.kpt_affine(output_keypoints[:, :, 0:2], output_transformation_matrix)
 
-        if np.random.rand() > self.image_horizontal_flip_probability:
+        # transform the input keypoints as per the augmentation - do it after the output_transformation
+        input_keypoints[:, :, 0:2] = utils.kpt_affine(input_keypoints[:, :, 0:2], input_transformation_matrix)
+
+        if np.random.rand() < self.image_horizontal_flip_probability:
             image = utils.image_horizontal_flip(image)
             input_keypoints = utils.keypoints_horizontal_flip(input_keypoints, self.input_resolution, self.horizontally_flipped_keypoint_ids)
             output_keypoints = utils.keypoints_horizontal_flip(output_keypoints, self.output_resolution, self.horizontally_flipped_keypoint_ids)
 
         # set keypoints to 0 when were not visible initially (so heatmap all 0s)
         for i in range(np.shape(input_keypoints)[1]):
-            if original_keypoints[0, i, 0] == 0 and original_keypoints[0, i, 1] == 0:
-                output_keypoints[0, i, 0] = 0
-                output_keypoints[0, i, 1] = 0
-                input_keypoints[0, i, 0] = 0
-                input_keypoints[0, i, 1] = 0
+            if o_kp[0, i, 0] == 0 or o_kp[0, i, 1] == 0:
+                print("I am hear!!")
+                input_keypoints[0, i, 0:2] *= 0
+                # input_keypoints[0, i, 1] = 0
+                output_keypoints[0, i, 0:2] *= 0
+                # output_keypoints[0, i, 1] = 0
 
         heatmaps = self.generate_heatmap(output_keypoints)  # generate heatmaps on output resolution
 
-        # color jitter in input image; create torch tensors for input and output
         if self.transforms:
-            image = self.transforms(image)
+            image = image.transpose((2, 0, 1)).copy()  # if copy is not done, torch throws exception
+            image = torch.from_numpy(image)         # image to torch tensor
+            image = self.transforms(image)          # color jitter in input image; create torch tensors for input and output
         heatmaps = tensor(heatmaps)
 
         return image, heatmaps, input_keypoints, output_keypoints

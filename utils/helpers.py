@@ -90,7 +90,7 @@ def inv_mat(mat):
 
 def kpt_affine(kpt, mat):
     """
-    Keypoint affine transformation.
+    Keypoint affine transformation. If the keypoint coordinates are zero, they are kept zero in the transformed output as well.
 
     Args:
         kpt (numpy.ndarray or list or tuple): Keypoint coordinates of shape ``(N, 2)`` or ``(2*N,)``.
@@ -102,9 +102,14 @@ def kpt_affine(kpt, mat):
     kpt = np.array(kpt)
     shape = kpt.shape  # original input shape
     kpt = kpt.reshape(-1, 2)
-    ones_ = np.ones((kpt.shape[0], 1))
-    kpt = np.concatenate((kpt, ones_), axis=1)  # shape (N, 3) with each row as [x, y, 1].
+    kpt = np.concatenate((kpt, np.ones((kpt.shape[0], 1))), axis=1)  # shape (N, 3) with each row as [x, y, 1].
     new_kpt = np.dot(kpt, mat.T)
+
+    for i in range(kpt.shape[0]):
+        if kpt[i, 0] == 0:
+            new_kpt[i, 0] = 0
+            new_kpt[i, 1] = 0
+
     new_kpt = new_kpt.reshape(shape)
     return new_kpt
 
@@ -221,8 +226,8 @@ def crop(img, center, scale, resolution, rotation=0):
     new_y = max(0, -ul[1]), min(br[1], img.shape[0]) - ul[1]
 
     # Range to sample from original image
-    old_x = max(0, ul[0]), min(len(img[0]), br[0])
-    old_y = max(0, ul[1]), min(len(img), br[1])
+    old_x = max(0, ul[0]), min(img.shape[1], br[0])
+    old_y = max(0, ul[1]), min(img.shape[0], br[1])
 
     new_img[new_y[0]:new_y[1], new_x[0]:new_x[1]] = img[old_y[0]:old_y[1], old_x[0]:old_x[1]]
 
@@ -482,6 +487,7 @@ def image_horizontal_flip(image):
     """
     return image[:, ::-1]
 
+
 def keypoints_horizontal_flip(kps, width, flipped_kp_ids):
     """
     Horizontally flip the keypoints in the image.
@@ -520,7 +526,7 @@ def transform_MPII_image_keypoints(image, kp, center, scale, resolution):
     """
     image = crop(image, center, scale, resolution)
     new_kp = kp.copy()
-    for i in range(np.shape(new_kp)[1]):
-        if new_kp[0, i, 0] > 0:
+    for i in range(new_kp.shape[1]):
+        if kp[0, i, 0] > 0:
             new_kp[0, i, :2] = transform(kp[0, i, :2], center, scale, resolution)
     return image, new_kp
