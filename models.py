@@ -247,7 +247,7 @@ class HeatMapLossBatch(nn.Module):
         - ground_truth (torch.Tensor): Shape ``(N, C, H, W)``.
 
     Outputs:
-        - torch.Tensor: Shape ``(N, n_hourglass)``.
+        - torch.Tensor: Loss with dtype ``torch.float32``.
 
     Notes:
         - ``N``: Batch size
@@ -260,7 +260,7 @@ class HeatMapLossBatch(nn.Module):
         - input:
              - prediction: ``(N, C, H, W)``
              - ground_truth: ``(N, C, H, W)``
-        - output: ``(N,)``
+        - output: torch.Tensor of dtype ``torch.float32`` containing a scalar value.
     """
 
     def __init__(self):
@@ -276,7 +276,7 @@ class HeatMapLossBatch(nn.Module):
             ground_truth (torch.Tensor): Shape ``(N, C, H, W)``.
 
         Returns:
-            torch.Tensor: Shape ``(N, n_hourglass)``.
+            torch.Tensor: Loss scalar value in tensor of dtype ``torch.Float32``.
 
         Notes:
             - ``N``: Batch size
@@ -287,11 +287,12 @@ class HeatMapLossBatch(nn.Module):
 
         """
         loss_ = []
-        for i in range(self.n_hourglass):
+        n_hourglass = int(prediction.shape[1])
+        for i in range(n_hourglass):
             loss = self.heatmap_loss(prediction=prediction[:, i], ground_truth=ground_truth)
             loss_.append(loss)
 
-        loss_ = torch.stack(loss_, dim=1)
+        loss_ = torch.stack(loss_, dim=1)       #
 
         loss_ = loss_.mean(dim=1).sum()
         return loss_

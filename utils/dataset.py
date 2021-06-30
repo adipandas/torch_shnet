@@ -34,6 +34,13 @@ class MPIIDataset(Dataset):
         saturation_min_delta (float): Minimum saturation factor. Default is ``0.2``.
         brightness_max_delta (float): Maximum possible change in image brightness. Default is ``0.3``.
         contrast_min_delta (float): minimum possible change in contrast of image. Default is ``0.5``.
+
+    Notes:
+        * This class is to be used with ``torch.utils.data.DataLoader``.
+        * __getitem__ returns the following in given order:
+            - image: Torch Tensor with shape (N, 3, H, W)
+            - heatmaps: Torch Tensor with shape (N, num_parts, H, W)
+
     """
 
     def __init__(self,
@@ -57,7 +64,6 @@ class MPIIDataset(Dataset):
         assert image_scale_factor_range[0] <= image_scale_factor_range[1]
         assert 0. < image_color_jitter_probability < 1.0
         assert 0. < image_horizontal_flip_probability < 1.0
-
         self.indices = indices
         self.mpii_annotation_handle = mpii_annotation_handle
         self.horizontally_flipped_keypoint_ids = horizontally_flipped_keypoint_ids
@@ -125,9 +131,7 @@ class MPIIDataset(Dataset):
         for i in range(np.shape(input_keypoints)[1]):
             if o_kp[0, i, 0] == 0 or o_kp[0, i, 1] == 0:
                 input_keypoints[0, i, 0:2] *= 0
-                # input_keypoints[0, i, 1] = 0
                 output_keypoints[0, i, 0:2] *= 0
-                # output_keypoints[0, i, 1] = 0
 
         heatmaps = self.generate_heatmap(output_keypoints)  # generate heatmaps on output resolution
 
@@ -137,4 +141,4 @@ class MPIIDataset(Dataset):
             image = self.transforms(image)          # color jitter in input image; create torch tensors for input and output
         heatmaps = tensor(heatmaps)
 
-        return image, heatmaps, input_keypoints, output_keypoints
+        return image, heatmaps  # , input_keypoints, output_keypoints
