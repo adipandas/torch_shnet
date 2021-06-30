@@ -530,3 +530,26 @@ def transform_MPII_image_keypoints(image, kp, center, scale, resolution):
         if kp[0, i, 0] > 0 and kp[0, i, 1] > 0:
             new_kp[0, i, :2] = transform(kp[0, i, :2], center, scale, resolution)
     return image, new_kp
+
+
+def create_partitions(container, partition_sizes):
+    """
+    Divide the container into partitions with given sizes.
+
+    Args:
+        container (numpy.ndarray): Data container to create partitions from.
+        partition_sizes (tuple): Tuple containing fraction size of each partition.
+
+    Returns:
+        list[numpy.ndarray]: List with each element as numpy array of data from containers distributed as per partition_sizes. Length of list is same as length of ``partition_sizes`` given as the input to this function.
+
+    """
+    partitions = []
+
+    data_len = container.shape[0]
+
+    for fraction in partition_sizes:
+        part_len = int(fraction * data_len)
+        partitions.append(container[0:part_len])
+        container = container[part_len:]
+    return partitions

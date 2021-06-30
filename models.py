@@ -47,12 +47,7 @@ class Conv2DCustom(nn.Module):
         self.out_channels = out_channels
 
         padding = (kernel_size - 1) // 2
-        self.conv = nn.Conv2d(in_channels=in_channels,
-                              out_channels=out_channels,
-                              kernel_size=kernel_size,
-                              stride=stride,
-                              padding=padding,
-                              bias=True)
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=True)
 
         if relu_activation:
             self.relu = nn.ReLU()
@@ -297,6 +292,8 @@ class HeatMapLossBatch(nn.Module):
             loss_.append(loss)
 
         loss_ = torch.stack(loss_, dim=1)
+
+        loss_ = loss_.mean(dim=1).sum()
         return loss_
 
 
