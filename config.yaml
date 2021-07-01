@@ -31,7 +31,7 @@ neural_network:
     batch_size: 16
     input_resolution: 256
     output_resolution: 64
-    num_workers: 2
+    num_workers: 4
     epochs: 200
     train_iterations: 1000                     # training iterations
     valid_iterations: 10                       # validation iterations

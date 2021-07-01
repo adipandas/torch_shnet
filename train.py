@@ -151,8 +151,8 @@ def partition_dataset(rank, world_size, config):
     training_data_partition, validation_data_partition = partition.use(partition_id=rank, config=config, mpii_annotation_handle=mpii_annotation_handle)
     training_sampler = torch.utils.data.distributed.DistributedSampler(training_data_partition, num_replicas=world_size, rank=rank)
     validation_sampler = torch.utils.data.distributed.DistributedSampler(validation_data_partition, num_replicas=world_size, rank=rank)
-    training_dataloader = torch.utils.data.DataLoader(training_data_partition, batch_size=batch_size, shuffle=False, sampler=training_sampler)
-    validation_dataloader = torch.utils.data.DataLoader(validation_data_partition, batch_size=batch_size, shuffle=False, sampler=validation_sampler)
+    training_dataloader = torch.utils.data.DataLoader(training_data_partition, batch_size=batch_size, shuffle=False, sampler=training_sampler, num_workers=int(config.neural_network.train.num_workers*0.5))
+    validation_dataloader = torch.utils.data.DataLoader(validation_data_partition, batch_size=batch_size, shuffle=False, sampler=validation_sampler, num_workers=int(config.neural_network.train.num_workers*0.5))
     return training_dataloader, validation_dataloader, batch_size
 
 

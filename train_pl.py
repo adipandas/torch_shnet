@@ -71,8 +71,8 @@ def data_loader_creator(config):
         contrast_min_delta=contrast_min_delta
     )
 
-    train_dataloader = DataLoader(train_data, batch_size=config.neural_network.train.batch_size, num_workers=4)
-    valid_dataloader = DataLoader(valid_data, batch_size=config.neural_network.train.batch_size, num_workers=4)
+    train_dataloader = DataLoader(train_data, batch_size=config.neural_network.train.batch_size, num_workers=config.neural_network.train.num_workers)
+    valid_dataloader = DataLoader(valid_data, batch_size=config.neural_network.train.batch_size, num_workers=config.neural_network.train.num_workers)
 
     return train_dataloader, valid_dataloader
 

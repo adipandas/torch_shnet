@@ -1,15 +1,10 @@
-"""
-* Website: http://human-pose.mpi-inf.mpg.de/#download
-*  GitHub: https://github.com/princeton-vl/pytorch_stacked_hourglass/
-"""
-
 import numpy as np
 import torch
 from cv2 import warpAffine
 from imageio import imread
 from torch import tensor
 from torch.utils.data.dataset import Dataset
-from torchvision.transforms import ToTensor, ColorJitter, Compose as transformCompose
+from torchvision.transforms import ColorJitter, Compose as transformCompose
 import utils.helpers as utils
 from utils.annotation_handler import MPIIAnnotationHandler
 from utils.heatmap_generator import GenerateHeatmap
@@ -40,6 +35,10 @@ class MPIIDataset(Dataset):
         * __getitem__ returns the following in given order:
             - image: Torch Tensor with shape (N, 3, H, W)
             - heatmaps: Torch Tensor with shape (N, num_parts, H, W)
+
+    References:
+        * Website: http://human-pose.mpi-inf.mpg.de/#download
+        * GitHub: https://github.com/princeton-vl/pytorch_stacked_hourglass/
 
     """
 
